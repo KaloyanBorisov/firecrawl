@@ -150,9 +150,9 @@ export async function runActions(
         case 'executeJavascript': {
           const value = await page.evaluate((src: string) => {
             // Run as an async function body so `return` and `await` work.
-            const AsyncFunction = Object.getPrototypeOf(async function () {})
-              .constructor;
-            return new AsyncFunction(src)();
+            // Built from a string: TypeScript downlevels `async function`
+            // literals, so their constructor would be plain Function.
+            return new Function(`return (async () => {\n${src}\n})();`)();
           }, action.script);
           results.javascriptReturns.push({ type: typeof value, value });
           break;
