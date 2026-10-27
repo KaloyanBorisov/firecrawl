@@ -410,7 +410,7 @@ const engineOptions: {
   },
   playwright: {
     features: {
-      actions: false,
+      actions: true, // scroll/wait/click/write/press/scrape/executeJavascript; see engines/playwright
       waitFor: true,
       screenshot: false,
       "screenshot@fullScreen": false,

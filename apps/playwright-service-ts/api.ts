@@ -12,6 +12,13 @@ import UserAgent from 'user-agents';
 import { getError } from './helpers/get_error';
 import { Server } from 'proxy-chain';
 import { isInternalHost, ssrfPrepareRequest } from './helpers/ssrf';
+import {
+  ActionFailedError,
+  PageAction,
+  runActions,
+  UnsupportedActionError,
+  validateActions,
+} from './helpers/actions';
 
 dotenv.config();
 
@@ -156,6 +163,7 @@ interface UrlModel {
   headers?: { [key: string]: string };
   check_selector?: string;
   skip_tls_verification?: boolean;
+  actions?: PageAction[];
 }
 
 let browser: Browser;
@@ -264,6 +272,7 @@ const scrapePage = async (
   timeout: number,
   checkSelector: string | undefined,
   securityState: ContextSecurityState,
+  actions: PageAction[] = [],
 ) => {
   console.log(
     `Navigating to ${url} with waitUntil: ${waitUntil} and timeout: ${timeout}ms`,
@@ -293,6 +302,9 @@ const scrapePage = async (
     }
   }
 
+  const actionResults =
+    actions.length > 0 ? await runActions(page, actions, timeout) : undefined;
+
   let headers = null,
     content = await page.content(),
     landedUrl = page.url();
@@ -321,6 +333,7 @@ const scrapePage = async (
     status: response ? response.status() : null,
     headers,
     contentType: ct,
+    actions: actionResults,
   };
 };
 
@@ -357,7 +370,21 @@ app.post('/scrape', async (req: Request, res: Response) => {
     headers,
     check_selector,
     skip_tls_verification = false,
+    actions: rawActions,
   }: UrlModel = req.body;
+
+  let actions: PageAction[];
+  try {
+    actions = validateActions(rawActions);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : 'Invalid actions',
+      ...(error instanceof UnsupportedActionError && {
+        code: 'UNSUPPORTED_ACTION',
+        actionType: error.actionType,
+      }),
+    });
+  }
 
   console.log(`================= Scrape Request =================`);
   console.log(`URL: ${url}`);
@@ -366,6 +393,7 @@ app.post('/scrape', async (req: Request, res: Response) => {
   console.log(`Headers: ${headers ? JSON.stringify(headers) : 'None'}`);
   console.log(`Check Selector: ${check_selector ? check_selector : 'None'}`);
   console.log(`Skip TLS Verification: ${skip_tls_verification}`);
+  console.log(`Actions: ${actions.length ? actions.map(a => a.type).join(', ') : 'None'}`);
   console.log(`==================================================`);
 
   if (!url) {
@@ -501,6 +529,7 @@ app.post('/scrape', async (req: Request, res: Response) => {
       timeout,
       check_selector,
       securityState,
+      actions,
     );
     const pageError =
       result.status !== 200 ? getError(result.status) : undefined;
@@ -518,6 +547,7 @@ app.post('/scrape', async (req: Request, res: Response) => {
       pageStatusCode: result.status,
       contentType: result.contentType,
       url: result.url,
+      ...(result.actions && { actions: result.actions }),
       ...(pageError && { pageError }),
     });
   } catch (error) {
@@ -526,6 +556,20 @@ app.post('/scrape', async (req: Request, res: Response) => {
         content: '',
         pageStatusCode: 403,
         pageError: error.message,
+      });
+    }
+    if (error instanceof ActionFailedError) {
+      console.error('Action error:', error.message);
+      // 200 with a structured error so the API surfaces it as an action
+      // error instead of retrying the whole request.
+      return res.json({
+        content: '',
+        pageStatusCode: 200,
+        actionError: {
+          index: error.index,
+          type: error.actionType,
+          message: error.message,
+        },
       });
     }
     console.error('Scrape error:', error);

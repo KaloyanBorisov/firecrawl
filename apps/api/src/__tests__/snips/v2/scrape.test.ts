@@ -421,8 +421,52 @@ describe("Scrape tests", () => {
     scrapeTimeout,
   );
 
-  itIf(TEST_SELF_HOST && !HAS_FIRE_ENGINE)(
-    "rejects actions when fire-engine is not configured",
+  itIf(TEST_SELF_HOST && !HAS_FIRE_ENGINE && HAS_PLAYWRIGHT)(
+    "runs scroll and wait actions through playwright",
+    async () => {
+      const raw = await scrapeRaw(
+        {
+          url: "https://example.com",
+          actions: [
+            { type: "scroll", direction: "down" },
+            { type: "wait", milliseconds: 500 },
+            { type: "scrape" },
+            { type: "executeJavascript", script: "return document.title" },
+          ],
+        },
+        identity,
+      );
+
+      expect(raw.statusCode).toBe(200);
+      expect(raw.body.success).toBe(true);
+      expect(raw.body.data.markdown).toContain("Example Domain");
+      expect(raw.body.data.actions.scrapes).toHaveLength(1);
+      expect(raw.body.data.actions.javascriptReturns[0].value).toBe(
+        "Example Domain",
+      );
+    },
+    scrapeTimeout,
+  );
+
+  itIf(TEST_SELF_HOST && !HAS_FIRE_ENGINE && HAS_PLAYWRIGHT)(
+    "rejects fire-engine-only actions through playwright",
+    async () => {
+      const raw = await scrapeRaw(
+        {
+          url: "https://example.com",
+          actions: [{ type: "screenshot" }],
+        },
+        identity,
+      );
+
+      expect(raw.body.success).toBe(false);
+      expect(raw.body.code).toBe("SCRAPE_ACTION_ERROR");
+    },
+    scrapeTimeout,
+  );
+
+  itIf(TEST_SELF_HOST && !HAS_FIRE_ENGINE && !HAS_PLAYWRIGHT)(
+    "rejects actions when no action-capable engine is configured",
     async () => {
       const raw = await scrapeRaw(
         {
