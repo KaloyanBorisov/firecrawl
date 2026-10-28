@@ -55,6 +55,9 @@ x-common-env: &common-env
   SEARXNG_ENDPOINT: ${SEARXNG_ENDPOINT}
   SEARXNG_ENGINES: ${SEARXNG_ENGINES}
   SEARXNG_CATEGORIES: ${SEARXNG_CATEGORIES}
+  # Some sites (e.g. Yahoo Finance) send >16KB of response headers; undici's
+  # default limit makes the fetch engine fail with UND_ERR_HEADERS_OVERFLOW.
+  NODE_OPTIONS: ${NODE_OPTIONS:---max-http-header-size=65536}
   # Set NUQ_BACKEND=fdb to run the queue on FoundationDB instead of Postgres
   NUQ_BACKEND: ${NUQ_BACKEND}
   FDB_CLUSTER_FILE: ${NUQ_BACKEND:+/var/fdb/fdb.cluster}
@@ -71,7 +74,9 @@ services:
       PROXY_USERNAME: ${PROXY_USERNAME}
       PROXY_PASSWORD: ${PROXY_PASSWORD}
       ALLOW_LOCAL_WEBHOOKS: ${ALLOW_LOCAL_WEBHOOKS}
-      BLOCK_MEDIA: ${BLOCK_MEDIA}
+      BLOCK_MEDIA: ${BLOCK_MEDIA:-true}
+      # load | domcontentloaded | networkidle
+      PAGE_WAIT_UNTIL: ${PAGE_WAIT_UNTIL:-domcontentloaded}
       # Configure maximum concurrent pages for Playwright browser instances
       MAX_CONCURRENT_PAGES: ${CRAWL_CONCURRENT_REQUESTS:-10}
     networks:

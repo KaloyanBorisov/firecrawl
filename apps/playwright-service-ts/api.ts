@@ -29,6 +29,14 @@ app.use(express.json());
 
 const BLOCK_MEDIA =
   (process.env.BLOCK_MEDIA || 'False').toUpperCase() === 'TRUE';
+
+// 'load' waits for every ad/tracker script and image; 'domcontentloaded'
+// returns as soon as the DOM is parsed (wait_after_load still applies).
+type PageWaitUntil = 'load' | 'domcontentloaded' | 'networkidle';
+const PAGE_WAIT_UNTIL: PageWaitUntil = (() => {
+  const v = (process.env.PAGE_WAIT_UNTIL || 'domcontentloaded').toLowerCase();
+  return v === 'load' || v === 'networkidle' ? v : 'domcontentloaded';
+})();
 const MAX_CONCURRENT_PAGES = Math.max(
   1,
   Number.parseInt(process.env.MAX_CONCURRENT_PAGES ?? '10', 10) || 10,
@@ -211,7 +219,7 @@ const createContext = async (
 
   if (BLOCK_MEDIA) {
     await newContext.route(
-      '**/*.{png,jpg,jpeg,gif,svg,mp3,mp4,avi,flac,ogg,wav,webm}',
+      '**/*.{png,jpg,jpeg,gif,svg,webp,avif,ico,bmp,woff,woff2,ttf,otf,mp3,mp4,avi,flac,ogg,wav,webm,m3u8,ts}',
       async (route: Route, request: PlaywrightRequest) => {
         await route.abort();
       },
@@ -267,7 +275,7 @@ const isValidUrl = (urlString: string): boolean => {
 const scrapePage = async (
   page: Page,
   url: string,
-  waitUntil: 'load' | 'networkidle',
+  waitUntil: PageWaitUntil,
   waitAfterLoad: number,
   timeout: number,
   checkSelector: string | undefined,
@@ -389,6 +397,7 @@ app.post('/scrape', async (req: Request, res: Response) => {
   console.log(`================= Scrape Request =================`);
   console.log(`URL: ${url}`);
   console.log(`Wait After Load: ${wait_after_load}`);
+  console.log(`Wait Until: ${PAGE_WAIT_UNTIL}, Block Media: ${BLOCK_MEDIA}`);
   console.log(`Timeout: ${timeout}`);
   console.log(`Headers: ${headers ? JSON.stringify(headers) : 'None'}`);
   console.log(`Check Selector: ${check_selector ? check_selector : 'None'}`);
@@ -524,7 +533,7 @@ app.post('/scrape', async (req: Request, res: Response) => {
     const result = await scrapePage(
       page,
       url,
-      'load',
+      PAGE_WAIT_UNTIL,
       wait_after_load,
       timeout,
       check_selector,
