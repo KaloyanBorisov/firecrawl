@@ -4,8 +4,8 @@ x-common-service: &common-service
   # NOTE: If you don't want to build the service locally,
   # comment out the build: statement and uncomment the image: statement
   # image: ghcr.io/firecrawl/firecrawl
-  build: apps/api
-  pull_policy: build
+  image: ghcr.io/kaloyanborisov/firecrawl-api:latest
+  pull_policy: always
 
   ulimits:
     nofile:
@@ -68,8 +68,8 @@ services:
     # NOTE: If you don't want to build the service locally,
     # comment out the build: statement and uncomment the image: statement
     # image: ghcr.io/firecrawl/playwright-service:latest
-    build: apps/playwright-service-ts
-    pull_policy: build
+    image: ghcr.io/kaloyanborisov/firecrawl-playwright-service:latest
+    pull_policy: always
     environment:
       PORT: 3000
       PROXY_SERVER: ${PROXY_SERVER}
@@ -173,8 +173,8 @@ services:
     # NOTE: If you don't want to build the image locally,
     # comment out the build: statement and uncomment the image: statement
     # image: ghcr.io/firecrawl/nuq-postgres:latest
-    build: apps/nuq-postgres
-    pull_policy: build
+    image: ghcr.io/kaloyanborisov/firecrawl-nuq-postgres:latest
+    pull_policy: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
