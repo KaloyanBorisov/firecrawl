@@ -39,6 +39,13 @@ export type BillingMetadata = {
    * Unset when the caller sent no header or the charge has no request.
    */
   externalRequestId?: string | null;
+  /**
+   * The hosted MCP made the request, as verified at authentication (see
+   * `AuthObject.hostedMcp`). Its charges are made on MCP credits (see
+   * AutumnService.hostedMcpFeatureId). Rides the job payload like the rest of
+   * this metadata, so a crawl's pages carry it too.
+   */
+  hostedMcp?: boolean;
 };
 
 export function resolveBillingMetadata({

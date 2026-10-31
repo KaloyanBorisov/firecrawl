@@ -29,6 +29,7 @@ vi.mock("../../autumn/autumn.service", () => ({
     trackCredits,
     refundCredits,
     isRoutedThroughFirebill,
+    hostedMcpFeatureId: async () => "MCP_CREDITS",
   },
   featureIdForBillingEndpoint: (endpoint?: string) =>
     endpoint === "search" ? "SEARCH_CREDITS" : "CREDITS",
@@ -229,5 +230,49 @@ describe("billTeam", () => {
       false,
     ]);
     expect(refundCredits).not.toHaveBeenCalled();
+  });
+});
+
+describe("billTeam for a hosted MCP call", () => {
+  const hostedMcpScrape = {
+    endpoint: "scrape" as const,
+    jobId: "job-1",
+    chargeId: "job-1",
+    hostedMcp: true,
+  };
+
+  it("charges the whole call on MCP credits and queues an ordinary ledger operation", async () => {
+    await billTeam("team-1", "org-1", 3, 123, hostedMcpScrape);
+
+    expect(trackCredits).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        value: 3,
+        featureId: "MCP_CREDITS",
+        idempotencyKey: "fc:track:scrape:job-1",
+      }),
+    );
+    expect(queueBillingOperation).toHaveBeenCalledWith([
+      "team-1",
+      "org-1",
+      3,
+      123,
+      hostedMcpScrape,
+      false,
+      true,
+    ]);
+  });
+
+  it("refunds a failed enqueue whole to MCP credits", async () => {
+    queueBillingOperation.mockResolvedValueOnce({ success: false });
+
+    await billTeam("team-1", "org-1", 3, 123, hostedMcpScrape);
+
+    expect(refundCredits).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        value: 3,
+        featureId: "MCP_CREDITS",
+        idempotencyKey: "fc:refund:scrape:job-1",
+      }),
+    );
   });
 });

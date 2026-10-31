@@ -41,6 +41,7 @@ vi.mock("../../lib/exchange", () => ({
 vi.mock("../autumn/autumn.service", () => ({
   autumnService: {
     lockCredits: mocks.lock,
+    hostedMcpFeatureId: async () => "MCP_CREDITS",
     finalizeCreditsLock: mocks.finalize,
     refundCredits: mocks.refund,
     isRoutedThroughFirebill: async () => false,
@@ -148,6 +149,31 @@ it("quotes, reserves, executes within budget, settles actual usage, records once
   expect(executions()).toHaveLength(1);
   expect(mocks.finalize).toHaveBeenCalledTimes(1);
   expect(mocks.billAdd).toHaveBeenCalledTimes(1);
+});
+
+it("holds and settles a hosted MCP call's whole budget on MCP credits", async () => {
+  expect(await run({ hostedMcp: true })).toMatchObject({
+    status: 200,
+    executed: true,
+  });
+  expect(mocks.lock).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ value: 5, featureId: "MCP_CREDITS" }),
+  );
+  expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      overrideValue: 3,
+      heldValue: 5,
+      featureId: "MCP_CREDITS",
+    }),
+  );
+  expect(mocks.billAdd).toHaveBeenCalledWith(
+    "bill_team",
+    expect.objectContaining({
+      credits: 3,
+      billing: expect.objectContaining({ hostedMcp: true }),
+    }),
+    expect.anything(),
+  );
 });
 
 it("refuses a different payload under the same x-request-id", async () => {
@@ -278,6 +304,14 @@ it("refunds the direct-Autumn charge and leaves the Exchange usage pending when 
     expect.objectContaining({ teamId: "team", orgId: "org", value: 3 }),
   );
   expect(mocks.report).not.toHaveBeenCalled();
+});
+
+it("refunds a hosted MCP charge to MCP credits when the ledger enqueue fails", async () => {
+  mocks.billAdd.mockRejectedValue(new Error("queue down"));
+  expect((await run({ hostedMcp: true })).status).toBe(200);
+  expect(mocks.refund).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ value: 3, featureId: "MCP_CREDITS" }),
+  );
 });
 
 it("treats a team with no org as a skipped hold and executes nothing", async () => {

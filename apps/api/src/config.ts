@@ -305,6 +305,11 @@ const configSchema = z.object({
   MCP_ACTION_LOG_SECRET: z.string().optional(),
   MCP_ACTION_LOG_STORAGE_ENABLED: z.stringbool().default(false),
   MCP_ACTION_LOG_WRITES_ENABLED: z.stringbool().default(false),
+  // Autumn feature id of the balance hosted MCP calls spend first (see
+  // AutumnService.trackHostedMcpCredits).
+  MCP_CREDITS_FEATURE_ID: emptyStringAsDefault(
+    z.string().trim().min(1).default("MCP_CREDITS"),
+  ),
 
   // Agent auth discovery (RFC 9728 WWW-Authenticate on 401)
   AGENT_AUTH_RESOURCE_METADATA_URL: z
@@ -529,6 +534,13 @@ const configSchema = z.object({
   // cache service when one is configured; beyond the budget the request is
   // served normally. 0 disables the option.
   FIRE_PDF_CACHE_REFRESH_PER_MINUTE: z.coerce.number().int().min(0).default(10),
+  // Opt in to background refresh: lookups carry `background_refresh: true`,
+  // so the cache service can answer a refresh-campaign match with the stale
+  // entry instead of a miss. When it grants a refresh (`refresh_requested`),
+  // the stale result is served and the bytes are submitted to fire-pdf's bulk
+  // queue for a fresh parse, which fire-pdf writes back to the cache. Needs
+  // FIRE_PDF_CACHE_BASE_URL and FIRE_PDF_BASE_URL.
+  FIRE_PDF_CACHE_BACKGROUND_REFRESH: z.stringbool().default(false),
   // /v2/parse sends every PDF (auto/ocr mode) to FirePDF: no direct
   // text-layer extraction, no FIRE_PDF_PERCENT sampling, no MinerU
   // diversion. Explicit `mode: "fast"` keeps direct extraction. FirePDF

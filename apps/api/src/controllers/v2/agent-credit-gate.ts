@@ -1,4 +1,7 @@
-import { autumnService } from "../../services/autumn/autumn.service";
+import {
+  autumnService,
+  CREDITS_FEATURE_ID,
+} from "../../services/autumn/autumn.service";
 import { logger } from "../../lib/logger";
 
 export const AGENT_DEFAULT_MAX_CREDITS = 2500;
@@ -28,6 +31,8 @@ export type AgentCreditGate =
  * - otherwise: `maxCredits` is capped at the balance, and the agent service
  *   is told to stop the run if the balance runs out mid-flight.
  *
+ * A hosted MCP run is gated on MCP credits, which its charges are tracked on.
+ *
  * Fails open: whenever Autumn or firebill can't answer, the run starts as
  * requested.
  */
@@ -36,11 +41,13 @@ export async function gateAgentCredits({
   orgId,
   apiKeyId,
   requestedMaxCredits,
+  hostedMcp = false,
 }: {
   teamId: string;
   orgId: string | null | undefined;
   apiKeyId: number | null;
   requestedMaxCredits: number | undefined;
+  hostedMcp?: boolean;
 }): Promise<AgentCreditGate> {
   const asRequested: AgentCreditGate = {
     allowed: true,
@@ -49,12 +56,21 @@ export async function gateAgentCredits({
   };
   if (!orgId || teamId === CREDIT_CHECK_EXEMPT_TEAM_ID) return asRequested;
 
+  const feature = hostedMcp
+    ? {
+        featureId: await autumnService.hostedMcpFeatureId(
+          teamId,
+          CREDITS_FEATURE_ID,
+        ),
+      }
+    : {};
   const check = (value: number, source: string) =>
     autumnService.checkCredits({
       teamId,
       orgId,
       value,
       properties: { source, path: "/agent", apiKeyId },
+      ...feature,
     });
 
   const minimum = await check(AGENT_MIN_CREDITS, "agentCreditGate");

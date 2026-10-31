@@ -48,6 +48,8 @@ import { resolveIntegration } from "../utils/integration";
 export function checkCreditsMiddleware(
   _minimum?: number,
   featureId: string = CREDITS_FEATURE_ID,
+  // Set on routes that bill a hosted MCP call to MCP credits.
+  { mcpCredits = false }: { mcpCredits?: boolean } = {},
 ): (req: RequestWithAuth, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
     let minimum = _minimum;
@@ -157,6 +159,11 @@ export function checkCreditsMiddleware(
       }
 
       const requestedCredits = minimum ?? 1;
+      // Gated on the balance its charge will be tracked on.
+      const gateFeatureId =
+        mcpCredits && req.auth.hostedMcp
+          ? await autumnService.hostedMcpFeatureId(req.auth.team_id, featureId)
+          : featureId;
 
       // No org means no billable identity to gate: keyless and preview teams
       // carry none, and neither does the DB-authentication bypass. `checkCredits`
@@ -179,7 +186,7 @@ export function checkCreditsMiddleware(
           path: req.path,
           apiKeyId: req.acuc?.api_key_id ?? null,
         },
-        featureId,
+        featureId: gateFeatureId,
       });
 
       // Autumn is the source of truth for credits. If it's unavailable
@@ -220,7 +227,7 @@ export function checkCreditsMiddleware(
               path: req.path,
               apiKeyId: req.acuc?.api_key_id ?? null,
             },
-            featureId,
+            featureId: gateFeatureId,
           });
 
           if (clampedResult === null || clampedResult.allowed) {
@@ -244,6 +251,19 @@ export function checkCreditsMiddleware(
             path: req.path,
           },
         );
+        // A Gateway account's credits come from the platform that created
+        // it, so its user has no plan of their own to upgrade.
+        if (
+          !res.headersSent &&
+          req.auth.team_id !== CREDIT_CHECK_EXEMPT_TEAM_ID &&
+          autumnResult.gatewayProvisioned === true
+        ) {
+          return res.status(402).json({
+            success: false,
+            code: "platform_managed_credits",
+            error: `Insufficient ${currencyName} to perform this request. This account's ${currencyName} are managed by the platform that created it, so contact that platform for more ${currencyName}.`,
+          });
+        }
         if (
           !res.headersSent &&
           req.auth.team_id !== CREDIT_CHECK_EXEMPT_TEAM_ID
@@ -273,6 +293,7 @@ export function authMiddleware(
   options: {
     allowKeyless?: boolean | ((req: RequestWithMaybeAuth) => boolean);
     allowAgentManagedKey?: boolean;
+    hostedMcpRateLimit?: boolean;
   } = {},
 ): (req: RequestWithMaybeAuth, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
@@ -322,8 +343,21 @@ export function authMiddleware(
       }
 
       const { team_id, org_id, chunk } = auth;
+      const agentInterop = agentInteropStatus(req);
+      // An agent run started by a hosted MCP call makes its own calls under
+      // the interop secret, and says so in the interop block. Only a trusted
+      // block may say it: the run itself was verified when it started.
+      const hostedMcp =
+        auth.hostedMcp ||
+        (agentInterop === "trusted" &&
+          (req.body as any)?.__agentInterop?.hostedMcp === true);
 
-      req.auth = { team_id, org_id, agentInterop: agentInteropStatus(req) };
+      req.auth = {
+        team_id,
+        org_id,
+        agentInterop,
+        ...(hostedMcp ? { hostedMcp: true } : {}),
+      };
       req.acuc = chunk ?? undefined;
       next();
     })().catch(err => next(err));

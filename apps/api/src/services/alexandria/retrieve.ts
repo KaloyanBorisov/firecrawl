@@ -107,6 +107,8 @@ export async function retrieveProviders(input: {
   requestId: string;
   /** The agent run this call belongs to: its credits join that run's call credits. */
   agentRequestId?: string;
+  /** A verified hosted MCP call: held and charged on MCP credits. */
+  hostedMcp?: boolean;
   scrapeId: string;
   timeoutMs: number;
   bypassBilling?: boolean;
@@ -256,7 +258,12 @@ export async function retrieveProviders(input: {
     return notExecuted(unresolved(id));
   }
 
-  const featureId = featureIdForBillingEndpoint("scrape");
+  const featureId = input.hostedMcp
+    ? await autumnService.hostedMcpFeatureId(
+        input.teamId,
+        featureIdForBillingEndpoint("scrape"),
+      )
+    : featureIdForBillingEndpoint("scrape");
   const properties = {
     source: "alexandria",
     endpoint: "scrape",
@@ -280,8 +287,8 @@ export async function retrieveProviders(input: {
   const finalize = async (credits: number) => {
     if (!lockId) return true;
     const settled = await autumnService.finalizeCreditsLock({
-      // Omitted without an org: the settle goes straight to Autumn, the route
-      // an unnameable org already took.
+      // Omitted without an org: the settle goes through firebill when it is
+      // configured, settled by lock id alone.
       team:
         input.orgId !== null
           ? { teamId: input.teamId, orgId: input.orgId }
@@ -507,6 +514,7 @@ export async function retrieveProviders(input: {
             input.apiKeyId,
             credits,
             refundable,
+            input.hostedMcp === true,
           )
         : settled;
     const charged =
@@ -570,6 +578,7 @@ async function recordLedgerUsage(
   apiKeyId: number | null,
   credits: number,
   refundable: boolean,
+  hostedMcp: boolean,
 ): Promise<boolean> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -579,7 +588,11 @@ async function recordLedgerUsage(
           team_id: teamId,
           org_id: orgId,
           credits,
-          billing: { endpoint: "scrape", chargeId: id },
+          billing: {
+            endpoint: "scrape",
+            chargeId: id,
+            ...(hostedMcp ? { hostedMcp: true } : {}),
+          },
           is_extract: false,
           timestamp: new Date().toISOString(),
           originating_job_id: id,
@@ -607,7 +620,12 @@ async function recordLedgerUsage(
           teamId,
           orgId,
           value: credits,
-          featureId: featureIdForBillingEndpoint("scrape"),
+          featureId: hostedMcp
+            ? await autumnService.hostedMcpFeatureId(
+                teamId,
+                featureIdForBillingEndpoint("scrape"),
+              )
+            : featureIdForBillingEndpoint("scrape"),
           properties: {
             source: "alexandria",
             endpoint: "scrape",

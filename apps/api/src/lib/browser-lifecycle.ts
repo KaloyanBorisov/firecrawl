@@ -19,6 +19,8 @@ import {
   settleBrowserSessionOnce,
   withLockedBrowserSession,
   didBrowserSessionUsePrompt,
+  didBrowserSessionComeFromHostedMcp,
+  markBrowserSessionHostedMcp,
   listUnsettledHangarSessions,
   BrowserSessionRow,
 } from "./browser-sessions";
@@ -33,6 +35,7 @@ import {
 } from "../services/worker/nuq-router";
 import {
   autumnService,
+  CREDITS_FEATURE_ID,
   DEFAULT_TEAM_LIMITS,
 } from "../services/autumn/autumn.service";
 import { billTeam } from "../services/billing/credit_billing";
@@ -182,6 +185,14 @@ async function createBrowserSessionInternal(
         path: req.path,
         apiKeyId: req.acuc?.api_key_id ?? null,
       },
+      ...(req.auth.hostedMcp
+        ? {
+            featureId: await autumnService.hostedMcpFeatureId(
+              req.auth.team_id,
+              CREDITS_FEATURE_ID,
+            ),
+          }
+        : {}),
     });
     if (credit !== null && !credit.allowed)
       throw new BrowserSessionError(
@@ -212,7 +223,10 @@ async function createBrowserSessionInternal(
       ))
     )
       throw new BrowserSessionError(429, KEYLESS_FREE_TIER_LIMIT_MESSAGE);
-    const browser = await createHangarBrowser(id, req.auth.team_id, options);
+    const browser = await createHangarBrowser(id, req.auth.team_id, {
+      ...options,
+      zeroDataRetention,
+    });
     browserId = browser.id;
     if (options.initialize) await options.initialize(browser.id);
     if (!options.requestId)
@@ -248,6 +262,15 @@ async function createBrowserSessionInternal(
       credits_used: null,
       profile_name: options.profile?.name ?? null,
     });
+    // Settlement runs later, often with no request in hand, so the session
+    // keeps the verified hosted MCP signal for it.
+    if (shouldBill && req.auth.hostedMcp)
+      await markBrowserSessionHostedMcp(session.id).catch(error =>
+        logger.warn("Failed to mark a hosted MCP browser session", {
+          sessionId: session.id,
+          error,
+        }),
+      );
     return {
       session,
       expiresAt:
@@ -338,6 +361,7 @@ async function settleBrowserSessionInternal(
         ? session.request_id
         : undefined;
     if (session.should_bill) {
+      const hostedMcp = await didBrowserSessionComeFromHostedMcp(session.id);
       billTeam(
         session.team_id,
         await orgIdForTeam(session.team_id),
@@ -351,6 +375,7 @@ async function settleBrowserSessionInternal(
               : "browser",
           jobId: agentRequestId ?? session.id,
           chargeId: `${session.id}:destroy`,
+          ...(hostedMcp ? { hostedMcp: true } : {}),
         },
       ).catch(error =>
         logger.error("Failed to bill browser session", {
@@ -417,6 +442,14 @@ export async function reserveBrowserPromptCredits(
         path: req.path,
         apiKeyId: req.acuc?.api_key_id ?? null,
       },
+      ...(req.auth.hostedMcp
+        ? {
+            featureId: await autumnService.hostedMcpFeatureId(
+              req.auth.team_id,
+              CREDITS_FEATURE_ID,
+            ),
+          }
+        : {}),
     });
     if (credit !== null && !credit.allowed)
       throw new BrowserSessionError(
@@ -437,6 +470,15 @@ export async function reserveBrowserPromptCredits(
     )
       throw new BrowserSessionError(429, KEYLESS_FREE_TIER_LIMIT_MESSAGE);
     await markBrowserSessionUsedPrompt(current.id);
+    // The prompt rate is most of a session's charge, so a hosted MCP prompt
+    // bills the session as hosted even when another call created it.
+    if (current.should_bill && req.auth.hostedMcp)
+      await markBrowserSessionHostedMcp(current.id).catch(error =>
+        logger.warn("Failed to mark a hosted MCP browser session", {
+          sessionId: current.id,
+          error,
+        }),
+      );
   });
 }
 

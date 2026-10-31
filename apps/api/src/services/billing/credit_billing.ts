@@ -37,7 +37,12 @@ export async function billTeam(
         ...toAutumnBillingProperties(billing),
         apiKeyId: api_key_id,
       };
-      const featureId = featureIdForBillingEndpoint(billing.endpoint);
+      const featureId = billing.hostedMcp
+        ? await autumnService.hostedMcpFeatureId(
+            team_id,
+            featureIdForBillingEndpoint(billing.endpoint),
+          )
+        : featureIdForBillingEndpoint(billing.endpoint);
 
       let trackedInRequest = false;
       if (org_id !== null) {
