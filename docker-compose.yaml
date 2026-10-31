@@ -5,6 +5,7 @@ x-common-service: &common-service
   # comment out the build: statement and uncomment the image: statement
   # image: ghcr.io/firecrawl/firecrawl
   build: apps/api
+  pull_policy: build
 
   ulimits:
     nofile:
@@ -68,6 +69,7 @@ services:
     # comment out the build: statement and uncomment the image: statement
     # image: ghcr.io/firecrawl/playwright-service:latest
     build: apps/playwright-service-ts
+    pull_policy: build
     environment:
       PORT: 3000
       PROXY_SERVER: ${PROXY_SERVER}
@@ -172,6 +174,7 @@ services:
     # comment out the build: statement and uncomment the image: statement
     # image: ghcr.io/firecrawl/nuq-postgres:latest
     build: apps/nuq-postgres
+    pull_policy: build
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
