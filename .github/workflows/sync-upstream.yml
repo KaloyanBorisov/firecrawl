@@ -1,0 +1,122 @@
+# Daily sync of this private fork's main with upstream firecrawl/firecrawl main.
+#
+# - Clean merge  -> merge commit pushed straight to main.
+# - Conflict, or push refused -> upstream main is pushed to the
+#   sync/upstream-main branch and a PR into main is opened (or updated).
+#
+# Pushing upstream commits that change .github/workflows/** needs a token with
+# the "workflow" permission; the built-in GITHUB_TOKEN never has it. Add a
+# fine-grained PAT for this repo (Contents, Pull requests, Workflows: read and
+# write) as the SYNC_TOKEN secret. Pushes made with the PAT also trigger
+# build-selfhost-images.yml as usual; with GITHUB_TOKEN they do not, so the
+# build is dispatched explicitly in that case.
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 13 * * *" # daily, 05:17 PST / 06:17 PDT
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: firecrawl/firecrawl
+  UPSTREAM_BRANCH: main
+  TARGET_BRANCH: main
+  SYNC_BRANCH: sync/upstream-main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SYNC_TOKEN: ${{ secrets.SYNC_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Fetch upstream
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "${UPSTREAM_BRANCH}"
+
+      - name: Count new upstream commits
+        id: check
+        run: |
+          behind=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
+          echo "behind=${behind}" >> "$GITHUB_OUTPUT"
+          echo "Upstream commits not yet in ${TARGET_BRANCH}: ${behind}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Merge and push
+        id: merge
+        if: steps.check.outputs.behind != '0'
+        run: |
+          before=$(git rev-parse HEAD)
+          if git merge --no-edit -m "Merge upstream ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}" "upstream/${UPSTREAM_BRANCH}"; then
+            if git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "result=merged" >> "$GITHUB_OUTPUT"
+              if git diff --quiet "${before}" HEAD -- apps/api apps/playwright-service-ts apps/nuq-postgres; then
+                echo "apps_changed=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "apps_changed=true" >> "$GITHUB_OUTPUT"
+              fi
+              echo "Merged upstream into ${TARGET_BRANCH}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::warning::Push to ${TARGET_BRANCH} was refused (upstream changed workflow files and SYNC_TOKEN is missing, or branch protection). Opening a PR instead."
+            echo "result=push_refused" >> "$GITHUB_OUTPUT"
+          else
+            echo "Conflicting files:" >> "$GITHUB_STEP_SUMMARY"
+            git diff --name-only --diff-filter=U | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+            echo "::warning::Merge conflict with upstream. Opening a PR instead."
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update sync PR
+        if: steps.merge.outputs.result == 'conflict' || steps.merge.outputs.result == 'push_refused'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
+          RESULT: ${{ steps.merge.outputs.result }}
+          BEHIND: ${{ steps.check.outputs.behind }}
+        run: |
+          if ! git push --force origin "refs/remotes/upstream/${UPSTREAM_BRANCH}:refs/heads/${SYNC_BRANCH}"; then
+            echo "::error::Could not push ${SYNC_BRANCH}. If upstream changed .github/workflows, add the SYNC_TOKEN secret (fine-grained PAT with Workflows: read and write)."
+            exit 1
+          fi
+          upstream_sha=$(git rev-parse --short "upstream/${UPSTREAM_BRANCH}")
+          if [ "${RESULT}" = "conflict" ]; then
+            reason="The merge has conflicts with this fork's own commits; resolve them in this PR."
+          else
+            reason="The merge was clean, but pushing it to ${TARGET_BRANCH} was refused (usually upstream changes under .github/workflows without SYNC_TOKEN)."
+          fi
+          body=$(printf '%s\n\n%s\n\n%s' \
+            "Automated sync of \`${UPSTREAM_REPO}@${UPSTREAM_BRANCH}\` (${upstream_sha}) into \`${TARGET_BRANCH}\`: ${BEHIND} new upstream commits." \
+            "${reason}" \
+            "Opened by the Sync upstream workflow ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})).")
+          existing=$(gh pr list --head "${SYNC_BRANCH}" --base "${TARGET_BRANCH}" --state open --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh pr comment "${existing}" --body "Updated to upstream ${upstream_sha} (${BEHIND} commits behind). ${reason}"
+            echo "Updated PR #${existing}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh pr create --head "${SYNC_BRANCH}" --base "${TARGET_BRANCH}" \
+              --title "Sync upstream ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}" --body "${body}"
+            echo "Opened a sync PR." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build self-host images (GITHUB_TOKEN pushes do not trigger it)
+        if: steps.merge.outputs.result == 'merged' && steps.merge.outputs.apps_changed == 'true' && env.HAS_SYNC_TOKEN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build-selfhost-images.yml --ref "${TARGET_BRANCH}"
