@@ -88,6 +88,8 @@ jobs:
         if: steps.merge.outputs.result == 'conflict' || steps.merge.outputs.result == 'push_refused'
         env:
           # SYNC_TOKEN needs "Pull requests: Read and write" for this step.
+          # Every gh call passes -R: with an "upstream" remote present, gh would
+          # otherwise target firecrawl/firecrawl instead of this fork.
           GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
           RESULT: ${{ steps.merge.outputs.result }}
           BEHIND: ${{ steps.check.outputs.behind }}
@@ -106,12 +108,12 @@ jobs:
             "Automated sync of \`${UPSTREAM_REPO}@${UPSTREAM_BRANCH}\` (${upstream_sha}) into \`${TARGET_BRANCH}\`: ${BEHIND} new upstream commits." \
             "${reason}" \
             "Opened by the Sync upstream workflow ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})).")
-          existing=$(gh pr list --head "${SYNC_BRANCH}" --base "${TARGET_BRANCH}" --state open --json number --jq '.[0].number // empty')
+          existing=$(gh pr list -R "${GITHUB_REPOSITORY}" --head "${SYNC_BRANCH}" --base "${TARGET_BRANCH}" --state open --json number --jq '.[0].number // empty')
           if [ -n "${existing}" ]; then
-            gh pr comment "${existing}" --body "Updated to upstream ${upstream_sha} (${BEHIND} commits behind). ${reason}"
+            gh pr comment -R "${GITHUB_REPOSITORY}" "${existing}" --body "Updated to upstream ${upstream_sha} (${BEHIND} commits behind). ${reason}"
             echo "Updated PR #${existing}." >> "$GITHUB_STEP_SUMMARY"
           else
-            gh pr create --head "${SYNC_BRANCH}" --base "${TARGET_BRANCH}" \
+            gh pr create -R "${GITHUB_REPOSITORY}" --head "${SYNC_BRANCH}" --base "${TARGET_BRANCH}" \
               --title "Sync upstream ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}" --body "${body}"
             echo "Opened a sync PR." >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -120,4 +122,4 @@ jobs:
         if: steps.merge.outputs.result == 'merged' && steps.merge.outputs.apps_changed == 'true' && env.HAS_SYNC_TOKEN != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build-selfhost-images.yml --ref "${TARGET_BRANCH}"
+        run: gh workflow run -R "${GITHUB_REPOSITORY}" build-selfhost-images.yml --ref "${TARGET_BRANCH}"
