@@ -91,8 +91,10 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # Resource limits for Docker Compose (not Swarm)
-    cpus: 2.0
+    # Resource limits for Docker Compose (not Swarm). Parallel scrapes were
+    # slowed by Chromium on 2 CPUs with Docker's default 64 MB /dev/shm.
+    cpus: 4.0
+    shm_size: 1gb
     mem_limit: 4G
     memswap_limit: 4G
     logging:
@@ -117,6 +119,9 @@ services:
       WORKER_PORT: ${WORKER_PORT:-3005}
       NUQ_RABBITMQ_URL: amqp://rabbitmq:5672
       HARNESS_STARTUP_TIMEOUT_MS: ${HARNESS_STARTUP_TIMEOUT_MS:-60000}
+      # The harness default is 5 nuq-workers (~275 MB each); 3 is plenty for
+      # local use.
+      NUQ_WORKER_COUNT: ${NUQ_WORKER_COUNT:-3}
       ENV: local
     depends_on:
       redis:
@@ -206,6 +211,10 @@ services:
     networks:
       - backend
     command: rabbitmq-server
+    environment:
+      # Erlang's schedulers busy-wait when idle, which showed up as ~180% CPU
+      # with empty queues. Turning busy-waiting off costs nothing at this load.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+sbwt none +sbwtdcpu none +sbwtdio none"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 5s
@@ -253,7 +262,10 @@ services:
   # FoundationDB queue backend (experimental). Enable by setting
   # NUQ_BACKEND=fdb; the api container reads the shared cluster file from the
   # fdb-cluster-file volume. Replaces nuq-postgres once stable.
+  # The default queue runs on Postgres, so FoundationDB sits in the "fdb"
+  # profile: start it with `docker compose --profile fdb up -d`.
   foundationdb:
+    profiles: ["fdb"]
     # Come back after a crash, a Docker restart or a reboot.
     restart: unless-stopped
     image: foundationdb/foundationdb:7.3.63
@@ -274,6 +286,7 @@ services:
 
   # one-shot: creates the database on first boot (no-op afterwards)
   foundationdb-init:
+    profiles: ["fdb"]
     image: foundationdb/foundationdb:7.3.63
     depends_on:
       - foundationdb
