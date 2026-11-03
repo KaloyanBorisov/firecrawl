@@ -44,8 +44,9 @@ engines:
   - name: wikipedia
     disabled: false
   # Tor-only engines: they cannot load without a Tor proxy and log an
-  # error on every start.
+  # error on every start. "inactive" skips loading them ("disabled" only
+  # hides them from searches).
   - name: ahmia
-    disabled: true
+    inactive: true
   - name: torch
-    disabled: true
+    inactive: true
