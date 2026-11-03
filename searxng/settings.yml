@@ -43,3 +43,9 @@ engines:
     disabled: false
   - name: wikipedia
     disabled: false
+  # Tor-only engines: they cannot load without a Tor proxy and log an
+  # error on every start.
+  - name: ahmia
+    disabled: true
+  - name: torch
+    disabled: true
