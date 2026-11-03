@@ -24,23 +24,31 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      api: ${{ steps.filter.outputs.api }}
-      playwright: ${{ steps.filter.outputs.playwright }}
-      nuq: ${{ steps.filter.outputs.nuq }}
+      api: ${{ steps.filter.outputs.api == 'true' || steps.filter.outputs.workflow == 'true' }}
+      playwright: ${{ steps.filter.outputs.playwright == 'true' || steps.filter.outputs.workflow == 'true' }}
+      nuq: ${{ steps.filter.outputs.nuq == 'true' || steps.filter.outputs.workflow == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # A file counts for a filter only if it matches every pattern, which
+          # makes the "!" exclusions work. Tests and docs are not in the images.
+          predicate-quantifier: every
           filters: |
             api:
               - 'apps/api/**'
-              - '.github/workflows/build-selfhost-images.yml'
+              - '!apps/api/**/*.test.ts'
+              - '!apps/api/**/__tests__/**'
+              - '!apps/api/**/*.md'
             playwright:
               - 'apps/playwright-service-ts/**'
-              - '.github/workflows/build-selfhost-images.yml'
+              - '!apps/playwright-service-ts/**/*.test.ts'
+              - '!apps/playwright-service-ts/**/*.md'
             nuq:
               - 'apps/nuq-postgres/**'
+              - '!apps/nuq-postgres/**/*.md'
+            workflow:
               - '.github/workflows/build-selfhost-images.yml'
 
   build:

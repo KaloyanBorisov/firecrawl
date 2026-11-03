@@ -143,7 +143,8 @@ services:
   # single engine blocking us (DuckDuckGo's anti-bot page) no longer empties the
   # results. Reachable only on the backend network.
   searxng:
-    image: searxng/searxng:latest
+    # Pinned; bump deliberately (tags: https://hub.docker.com/r/searxng/searxng/tags)
+    image: searxng/searxng:2026.11.2-cccbc9e15
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
       SEARXNG_SECRET: ${SEARXNG_SECRET:-firecrawl-searxng-change-me}
