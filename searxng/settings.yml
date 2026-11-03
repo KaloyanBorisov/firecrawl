@@ -20,6 +20,15 @@ search:
   formats:
     - html
     - json
+  # Keep blocked engines suspended longer so they are not retried every few
+  # minutes (each retry keeps the IP flagged). Defaults: 3600 for 429.
+  suspended_times:
+    SearxEngineAccessDenied: 86400
+    SearxEngineCaptcha: 86400
+    SearxEngineTooManyRequests: 10800
+    cf_SearxEngineCaptcha: 1296000
+    cf_SearxEngineAccessDenied: 86400
+    recaptcha_SearxEngineCaptcha: 604800
 
 outgoing:
   # The response waits for the slowest engine; a hung engine used to hold every
