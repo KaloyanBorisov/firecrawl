@@ -46,13 +46,21 @@ engines:
     disabled: false
   - name: brave
     disabled: false
+  # Startpage stays off: Anubis Proof-of-Work CAPTCHA ("difficulty too high").
   - name: startpage
-    disabled: false
+    inactive: true
   - name: duckduckgo
     disabled: false
   - name: qwant
     disabled: false
   - name: wikipedia
+    disabled: false
+  # Extra providers so results survive google/duckduckgo/qwant blocks.
+  # Both are disabled in SearXNG defaults.
+  - name: mojeek
+    inactive: false
+    disabled: false
+  - name: yahoo
     disabled: false
   # Hosted Firecrawl search (api.firecrawl.dev), keyless unless
   # FIRECRAWL_HOSTED_KEY is set. Module: searxng/engines/firecrawl_hosted.py,

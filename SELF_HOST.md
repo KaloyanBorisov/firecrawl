@@ -77,9 +77,14 @@ metasearch engine that queries several engines at once. DuckDuckGo alone tends
 to answer bursts of queries from one IP with an anti-bot page.
 
 - Settings live in `searxng/settings.yml` (JSON output on, limiter off).
+  `searxng/limiter.toml` marks localhost and the Docker networks as trusted,
+  so enabling the limiter later would not throttle the API.
 - Set `SEARXNG_SECRET` in `.env` to a random string.
 - `SEARXNG_ENGINES` picks the engines (default
-  `google,bing,brave,startpage,duckduckgo,qwant,wikipedia`).
+  `google,bing,brave,duckduckgo,qwant,mojeek,yahoo,wikipedia`). Startpage is
+  left out: it now serves a Proof-of-Work CAPTCHA that SearXNG gives up on.
+  Engines that block your IP are suspended automatically; mojeek and yahoo
+  keep results coming when google or duckduckgo refuse.
 - Time filters (`tbs: qdr:d|w|m|y`) map to SearXNG's `time_range`.
 - If SearXNG returns nothing the API falls back to DuckDuckGo. If every provider
   fails, the API answers `503 SEARCH_PROVIDERS_UNAVAILABLE` with the reason

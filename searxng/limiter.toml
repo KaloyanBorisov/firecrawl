@@ -1,0 +1,35 @@
+# Bot-detection config for SearXNG. The limiter itself stays OFF in
+# settings.yml (server.limiter: false): Firecrawl is the only client and
+# sends bursts from one Docker IP, which the limiter would throttle.
+# This file silences the "missing limiter.toml" warning and tells SearXNG
+# which addresses are local/trusted if the limiter is ever enabled.
+
+[botdetection]
+ipv4_prefix = 32
+ipv6_prefix = 48
+# Docker bridge networks and localhost may set X-Forwarded-For / X-Real-IP.
+trusted_proxies = [
+  '127.0.0.0/8',
+  '::1',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  'fd00::/8',
+]
+
+[botdetection.ip_lists]
+# Never rate-limit or block requests coming from the local Docker network.
+pass_ip = [
+  '127.0.0.0/8',
+  '::1',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  'fd00::/8',
+]
+block_ip = []
+pass_searxng_org = false
+
+[botdetection.ip_limit]
+filter_link_local = false
+link_token = false

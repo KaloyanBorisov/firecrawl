@@ -56,7 +56,7 @@ x-common-env: &common-env
   # Bundled SearXNG metasearch (see the searxng service below). Set
   # SEARXNG_ENDPOINT to an empty value in .env to fall back to DuckDuckGo only.
   SEARXNG_ENDPOINT: ${SEARXNG_ENDPOINT-http://searxng:8080}
-  SEARXNG_ENGINES: ${SEARXNG_ENGINES:-google,bing,brave,startpage,duckduckgo,qwant,wikipedia}
+  SEARXNG_ENGINES: ${SEARXNG_ENGINES:-google,bing,brave,duckduckgo,qwant,mojeek,yahoo,wikipedia}
   SEARXNG_CATEGORIES: ${SEARXNG_CATEGORIES}
   # Some sites (e.g. Yahoo Finance) send >16KB of response headers; undici's
   # default limit makes the fetch engine fail with UND_ERR_HEADERS_OVERFLOW.
