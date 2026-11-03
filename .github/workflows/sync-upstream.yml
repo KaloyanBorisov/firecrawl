@@ -3,6 +3,8 @@
 # - Clean merge  -> merge commit pushed straight to main.
 # - Conflict, or push refused -> upstream main is pushed to the
 #   sync/upstream-main branch and a PR into main is opened (or updated).
+#   Work already on that branch (e.g. a conflict resolution) is kept: new
+#   upstream commits are merged into it instead of force-pushed over it.
 #
 # Pushing upstream commits that change .github/workflows/** needs a token with
 # the "workflow" permission; the built-in GITHUB_TOKEN never has it. Add a
@@ -94,8 +96,28 @@ jobs:
           RESULT: ${{ steps.merge.outputs.result }}
           BEHIND: ${{ steps.check.outputs.behind }}
         run: |
-          if ! git push --force origin "refs/remotes/upstream/${UPSTREAM_BRANCH}:refs/heads/${SYNC_BRANCH}"; then
-            echo "::error::Could not push ${SYNC_BRANCH}. If upstream changed .github/workflows, add the SYNC_TOKEN secret (fine-grained PAT with Workflows: read and write)."
+          # If the sync branch already holds work on top of upstream (e.g. a
+          # conflict resolution pushed to the PR), merge the new upstream into
+          # it instead of force-pushing over that work.
+          extra=0
+          if git ls-remote --exit-code --heads origin "${SYNC_BRANCH}" >/dev/null; then
+            git fetch --no-tags origin "${SYNC_BRANCH}"
+            extra=$(git rev-list --count "upstream/${UPSTREAM_BRANCH}..origin/${SYNC_BRANCH}")
+          fi
+          if [ "${extra}" != "0" ]; then
+            echo "${SYNC_BRANCH} has ${extra} commit(s) beyond upstream; merging upstream into it." >> "$GITHUB_STEP_SUMMARY"
+            git checkout -q -B "${SYNC_BRANCH}" "origin/${SYNC_BRANCH}"
+            if ! git merge --no-edit -m "Merge upstream ${UPSTREAM_REPO}@${UPSTREAM_BRANCH} into ${SYNC_BRANCH}" "upstream/${UPSTREAM_BRANCH}"; then
+              git merge --abort
+              echo "::error::New upstream commits conflict with the work on ${SYNC_BRANCH}; update that branch by hand."
+              exit 1
+            fi
+            push_args=(origin "HEAD:refs/heads/${SYNC_BRANCH}")
+          else
+            push_args=(--force origin "refs/remotes/upstream/${UPSTREAM_BRANCH}:refs/heads/${SYNC_BRANCH}")
+          fi
+          if ! git push "${push_args[@]}"; then
+            echo "::error::Could not push ${SYNC_BRANCH}. If upstream changed .github/workflows, SYNC_TOKEN needs Workflows: read and write."
             exit 1
           fi
           upstream_sha=$(git rev-parse --short "upstream/${UPSTREAM_BRANCH}")
