@@ -154,11 +154,16 @@ services:
       SEARXNG_BASE_URL: http://searxng:8080/
       SEARXNG_SECRET: ${SEARXNG_SECRET:-firecrawl-searxng-change-me}
       FORCE_OWNERSHIP: "false"
+      # Optional key for the hosted Firecrawl engine (settings.yml "firecrawl");
+      # empty = keyless. Only used when "firecrawl" is in SEARXNG_ENGINES.
+      FIRECRAWL_HOSTED_KEY: ${FIRECRAWL_HOSTED_KEY:-}
     volumes:
       # Folder mount, read-only. With FORCE_OWNERSHIP=false the entrypoint no
       # longer chowns ./searxng to its own user (that blocked git), and a folder
       # mount, unlike a single-file mount, survives git replacing settings.yml.
       - ./searxng:/etc/searxng:ro
+      # Custom engine module for hosted Firecrawl search (api.firecrawl.dev).
+      - ./searxng/engines/firecrawl_hosted.py:/usr/local/searxng/searx/engines/firecrawl_hosted.py:ro
     networks:
       - backend
     restart: unless-stopped
