@@ -148,7 +148,9 @@ services:
       SEARXNG_BASE_URL: http://searxng:8080/
       SEARXNG_SECRET: ${SEARXNG_SECRET:-firecrawl-searxng-change-me}
     volumes:
-      - ./searxng:/etc/searxng:rw
+      # Mount only the settings file, read-only. Mounting the whole folder let
+      # the container chown ./searxng to its own user, which blocked git.
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     networks:
       - backend
     restart: unless-stopped

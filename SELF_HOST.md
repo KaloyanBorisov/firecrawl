@@ -85,6 +85,10 @@ to answer bursts of queries from one IP with an anti-bot page.
   fails, the API answers `503 SEARCH_PROVIDERS_UNAVAILABLE` with the reason
   instead of an empty result.
 - To use DuckDuckGo only, set `SEARXNG_ENDPOINT=` (empty) in `.env`.
+- Only `searxng/settings.yml` is mounted (read-only), so the container never
+  changes ownership of the `searxng/` folder. Restart the `searxng` service
+  after editing it. If an older setup mounted the whole folder, recreate once
+  with fresh volumes: `docker compose up -d --force-recreate --renew-anon-volumes searxng`.
 
 ## Admin routes
 
