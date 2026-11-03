@@ -4,6 +4,7 @@ import { fire_engine_search_v2 } from "./fireEngine-v2";
 import { searxng_search } from "./searxng";
 import { ddgSearch } from "./ddgsearch";
 import { Logger } from "winston";
+import { UsOnlyUnavailableError } from "../../scraper/scrapeURL/error";
 
 /**
  * Thrown when every search provider that was tried failed (as opposed to
@@ -42,6 +43,7 @@ export async function search({
   enterprise = undefined,
   includeDomains = undefined,
   excludeDomains = undefined,
+  usOnly = false,
 }: {
   query: string;
   logger: Logger;
@@ -61,7 +63,14 @@ export async function search({
   enterprise?: ("default" | "anon" | "zdr")[];
   includeDomains?: string[];
   excludeDomains?: string[];
+  usOnly?: boolean;
 }): Promise<SearchV2Response> {
+  // The fallback backends below take no US-only routing.
+  if (usOnly && !config.FIRE_ENGINE_BETA_URL) {
+    throw new UsOnlyUnavailableError(
+      "Search is not available for teams restricted to US-only processing on this deployment.",
+    );
+  }
   try {
     if (config.FIRE_ENGINE_BETA_URL) {
       logger.info("Using fire engine search");
@@ -78,6 +87,7 @@ export async function search({
         enterprise,
         includeDomains,
         excludeDomains,
+        usOnly,
       });
 
       return results;

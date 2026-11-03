@@ -23,6 +23,7 @@ import { getBillingQueue } from "../queue-service";
 import { redisRateLimitClient } from "../rate-limiter";
 import { authorizeProviders } from "./access";
 import { exchangeRequest } from "./client";
+import { isUsOnly } from "../../lib/us-only";
 import {
   answerSchema,
   refusal,
@@ -186,12 +187,14 @@ export async function retrieveProviders(input: {
   const id = hash([input.teamId, input.requestId]);
   const key = `alexandria:retrieve:${id}`;
   const zeroDataRetention = input.zeroDataRetention === true;
-  // Appended only when set so existing non-ZDR fingerprints stay stable.
+  const usOnly = isUsOnly(input.flags);
+  // Appended only when set so existing fingerprints stay stable.
   const fingerprint = hash([
     ...(termsOnly
       ? [input.calls, billable, termsIdentity ?? null]
       : [input.calls, billable]),
     ...(zeroDataRetention ? [{ zeroDataRetention }] : []),
+    ...(usOnly ? [{ usOnly }] : []),
   ]);
   const record: Retrieval = {
     fingerprint,
@@ -258,12 +261,11 @@ export async function retrieveProviders(input: {
     return notExecuted(unresolved(id));
   }
 
-  const featureId = input.hostedMcp
-    ? await autumnService.hostedMcpFeatureId(
-        input.teamId,
-        featureIdForBillingEndpoint("scrape"),
-      )
-    : featureIdForBillingEndpoint("scrape");
+  const teamFeatureId = featureIdForBillingEndpoint("scrape");
+  let featureId = input.hostedMcp
+    ? await autumnService.hostedMcpFeatureId(input.teamId, teamFeatureId)
+    : teamFeatureId;
+  let hostedMcp = input.hostedMcp === true;
   const properties = {
     source: "alexandria",
     endpoint: "scrape",
@@ -283,7 +285,6 @@ export async function retrieveProviders(input: {
 
   let lockId: string | undefined;
   let maximumCredits: number;
-  let refundable = false;
   const finalize = async (credits: number) => {
     if (!lockId) return true;
     const settled = await autumnService.finalizeCreditsLock({
@@ -354,6 +355,7 @@ export async function retrieveProviders(input: {
       billingCountry: input.billingCountry,
       connectors: input.flags?.exchangeRetrieve === true,
       ...(zeroDataRetention ? { zeroDataRetention } : {}),
+      ...(usOnly ? { usOnly } : {}),
     }).catch(error => {
       logger.warn("Provider quote unavailable", { error, chargeId: id });
       return undefined;
@@ -387,19 +389,31 @@ export async function retrieveProviders(input: {
       // service already answered when it could not name one.
       let hold: LockCreditsResult = { status: "skipped" };
       if (input.orgId !== null) {
-        refundable = !(await autumnService.isRoutedThroughFirebill(
-          input.teamId,
-          input.orgId,
-        ));
-        hold = await autumnService.lockCredits({
-          teamId: input.teamId,
-          orgId: input.orgId,
-          value: maximumCredits,
-          lockId: `alexandria_${id}`,
-          expiresAt: record.deadline + HOLD_GRACE_MS,
-          featureId,
-          properties,
-        });
+        const orgId = input.orgId;
+        const lock = (feature: string, lockId: string) =>
+          autumnService.lockCredits({
+            teamId: input.teamId,
+            orgId,
+            value: maximumCredits,
+            lockId,
+            expiresAt: record.deadline + HOLD_GRACE_MS,
+            featureId: feature,
+            properties,
+          });
+        hold = await lock(featureId, `alexandria_${id}`);
+        // MCP credits can't reach team-scoped grants such as coupons, so a
+        // hosted MCP hold they refuse is tried on the team's own credits.
+        if (
+          hold.status === "denied" &&
+          (!hold.reason || hold.reason === "out_of_credits") &&
+          featureId !== teamFeatureId
+        ) {
+          hold = await lock(teamFeatureId, `alexandria_${id}_team`);
+          if (hold.status === "locked") {
+            featureId = teamFeatureId;
+            hostedMcp = false;
+          }
+        }
       }
       if (hold.status === "denied")
         return refuse(
@@ -469,6 +483,7 @@ export async function retrieveProviders(input: {
         : {}),
       ...(termsIdentity ? { termsIdentity } : {}),
       ...(zeroDataRetention ? { zeroDataRetention } : {}),
+      ...(usOnly ? { usOnly } : {}),
       maximumCredits,
     }).catch(error => {
       throw new Error(`Alexandria did not answer: ${error?.message ?? error}`);
@@ -513,12 +528,10 @@ export async function retrieveProviders(input: {
             input.orgId,
             input.apiKeyId,
             credits,
-            refundable,
-            input.hostedMcp === true,
+            hostedMcp,
           )
         : settled;
-    const charged =
-      settled && billable && credits > 0 && (recorded || !refundable);
+    const charged = settled && billable && credits > 0;
     if (charged && input.agentRequestId)
       await recordAgentCredits(input.agentRequestId, id, credits);
     if (!billable || recorded)
@@ -577,7 +590,6 @@ async function recordLedgerUsage(
   orgId: string | null,
   apiKeyId: number | null,
   credits: number,
-  refundable: boolean,
   hostedMcp: boolean,
 ): Promise<boolean> {
   for (let attempt = 1; ; attempt++) {
@@ -597,7 +609,7 @@ async function recordLedgerUsage(
           timestamp: new Date().toISOString(),
           originating_job_id: id,
           api_key_id: apiKeyId,
-          autumnTrackInRequest: refundable,
+          autumnTrackInRequest: false,
         },
         { jobId: `alexandria-bill-${id}`, priority: 10 },
       );
@@ -608,31 +620,9 @@ async function recordLedgerUsage(
         continue;
       }
       logger.error(
-        refundable
-          ? "Provider usage could not be queued for the ledger; refunding the Autumn charge and leaving the Exchange usage pending for reconciliation"
-          : "Provider usage could not be queued for the ledger; the firebill charge stands and the Exchange usage stays pending for reconciliation",
+        "Provider usage could not be queued for the ledger; the Autumn charge stands and the Exchange usage stays pending for reconciliation",
         { chargeId: id, teamId, credits, error },
       );
-      // refundable is only ever set with an org in hand; named again so the
-      // type says so.
-      if (refundable && orgId !== null)
-        await autumnService.refundCredits({
-          teamId,
-          orgId,
-          value: credits,
-          featureId: hostedMcp
-            ? await autumnService.hostedMcpFeatureId(
-                teamId,
-                featureIdForBillingEndpoint("scrape"),
-              )
-            : featureIdForBillingEndpoint("scrape"),
-          properties: {
-            source: "alexandria",
-            endpoint: "scrape",
-            chargeId: id,
-          },
-          idempotencyKey: `fc:refund:scrape:${id}`,
-        });
       return false;
     }
   }

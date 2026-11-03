@@ -60,9 +60,14 @@ import {
   ScrapeRetryLimitError,
   BrandingNotSupportedError,
   XTwitterConfigurationError,
+  UsOnlyUnavailableError,
   ExchangeRefusedError,
 } from "./error";
 import { ScrapeRetryTracker } from "./retryTracker";
+import {
+  inWaterfallExperimentArm,
+  waterfallExperimentFor,
+} from "./waterfallExperiments";
 import { executeTransformers } from "./transformers";
 import { LLMRefusalError } from "./transformers/llmExtract";
 import { shouldCheckRobots } from "./shouldCheckRobots";
@@ -794,7 +799,9 @@ async function scrapeURLLoopIter(
           length: engineResult.html?.trim().length ?? 0,
         },
       );
-      throw new AddFeatureError(["stealthProxy"]);
+      throw Object.assign(new AddFeatureError(["stealthProxy"]), {
+        statusCode: engineResult.statusCode,
+      });
     }
 
     // NOTE: TODO: what to do when status code is bad is tough...
@@ -985,6 +992,36 @@ async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
           break;
         } catch (error) {
           if (error instanceof WrappedEngineError) {
+            const nextEngine = remainingEngines[0]?.engine;
+            const experiment = waterfallExperimentFor(
+              error.engine,
+              error.error,
+              nextEngine,
+            );
+            if (experiment) {
+              const testArm = inWaterfallExperimentArm(meta.id, experiment);
+              meta.logger.info("Waterfall experiment decision", {
+                experiment,
+                arm: testArm ? "test" : "control",
+                engine: error.engine,
+                nextEngine,
+                error: error.error,
+              });
+              if (testArm) {
+                if (
+                  experiment === "skip-enhanced-retry-after-site-protection"
+                ) {
+                  remainingEngines.shift();
+                }
+                enginePromises = enginePromises.filter(
+                  x => x.engine !== error.engine,
+                );
+                if (enginePromises.length === 0) {
+                  break;
+                }
+                continue;
+              }
+            }
             if (error.engine === "x-twitter") {
               meta.logger.warn("X/Twitter scrape failed fatally.", {
                 error: error.error,
@@ -1034,6 +1071,7 @@ async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
               error.error instanceof NoCachedDataError ||
               error.error instanceof AgentIndexOnlyError ||
               error.error instanceof XTwitterConfigurationError ||
+              error.error instanceof UsOnlyUnavailableError ||
               error.error instanceof ExchangeRefusedError ||
               error.error instanceof ThirdPartyDataTermsRequiredError
             ) {
@@ -1180,6 +1218,7 @@ async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
 
     let document: Document = {
       markdown: engineResult.markdown,
+      warning: engineResult.warning,
       pages: engineResult.pages,
       blocks: engineResult.blocks,
       rawHtml: engineResult.html,

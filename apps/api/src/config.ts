@@ -265,6 +265,8 @@ const configSchema = z.object({
   ),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
+  // Key for US-only teams; OPENAI_API_KEY is never used for them.
+  OPENAI_US_API_KEY: emptyStringAsUndefined(z.string().trim().min(1)),
   OPENROUTER_API_KEY: z.string().optional(),
   XAI_API_KEY: z.string().optional(),
   LLAMAPARSE_API_KEY: z.string().optional(),
@@ -773,13 +775,11 @@ const configSchema = z.object({
 
   // Billing
   AUTO_RECHARGE_ENABLED: z.stringbool().default(false),
-  // firebill — durable usage-event store that sits in front of Autumn. When
-  // both URL and SECRET are set, usage tracking for orgs listed in
-  // FIREBILL_ORG_IDS (comma-separated org UUIDs) is routed through firebill
-  // instead of directly to Autumn (gradual rollout).
+  // firebill — durable usage-event store that sits in front of Autumn. Every
+  // billing write (check, lock, track, refund, finalize) goes through it;
+  // without both URL and SECRET set, billing is skipped.
   FIREBILL_URL: emptyStringAsUndefined(z.string().url()),
   FIREBILL_SECRET: emptyStringAsUndefined(z.string().trim().min(1)),
-  FIREBILL_ORG_IDS: delimitedList(",").optional(),
   // How long "this team is not partner-provisioned" is trusted. Only the
   // negative is bounded: provisioning is one-way, so a positive cannot go
   // stale, while a negative does the moment a partner provisions an account.
@@ -793,12 +793,6 @@ const configSchema = z.object({
     .min(0)
     .max(300)
     .default(60),
-  // Sticky percentage ramp, on top of the allowlist above. The bucket is a
-  // hash of the org id, so an org that is in at 5 is still in at 30 — a ramp
-  // only ever adds, and never reshuffles who is on which path mid-rollout.
-  // 0 (the default) is also the kill switch: the allowlist still routes, and
-  // nothing else does.
-  FIREBILL_ROLLOUT_PERCENT: z.coerce.number().min(0).max(100).default(0),
 
   // Miscellaneous
   // The commit the image was built from, set by the Dockerfile's GIT_SHA.
