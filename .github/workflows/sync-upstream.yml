@@ -6,8 +6,8 @@
 #
 # Pushing upstream commits that change .github/workflows/** needs a token with
 # the "workflow" permission; the built-in GITHUB_TOKEN never has it. Add a
-# fine-grained PAT for this repo (Contents, Pull requests, Workflows: read and
-# write) as the SYNC_TOKEN secret. Pushes made with the PAT also trigger
+# fine-grained PAT for this repo (Contents and Workflows: read and write) as
+# the SYNC_TOKEN secret; pull requests are opened with GITHUB_TOKEN. Pushes made with the PAT also trigger
 # build-selfhost-images.yml as usual; with GITHUB_TOKEN they do not, so the
 # build is dispatched explicitly in that case.
 name: Sync upstream
@@ -87,7 +87,9 @@ jobs:
       - name: Open or update sync PR
         if: steps.merge.outputs.result == 'conflict' || steps.merge.outputs.result == 'push_refused'
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
+          # PR calls use GITHUB_TOKEN ("Allow GitHub Actions to create pull
+          # requests" is on), so SYNC_TOKEN only needs Contents + Workflows.
+          GH_TOKEN: ${{ github.token }}
           RESULT: ${{ steps.merge.outputs.result }}
           BEHIND: ${{ steps.check.outputs.behind }}
         run: |
