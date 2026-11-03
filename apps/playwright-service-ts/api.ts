@@ -29,6 +29,9 @@ app.use(express.json());
 
 const BLOCK_MEDIA =
   (process.env.BLOCK_MEDIA || 'False').toUpperCase() === 'TRUE';
+// Playwright resource types skipped when BLOCK_MEDIA is on. Documents, scripts,
+// stylesheets and XHR/fetch still load, so page content renders as before.
+const BLOCKED_RESOURCE_TYPES = new Set(['image', 'media', 'font']);
 
 // 'load' waits for every ad/tracker script and image; 'domcontentloaded'
 // returns as soon as the DOM is parsed (wait_after_load still applies).
@@ -217,19 +220,18 @@ const createContext = async (
 
   const newContext = await browser.newContext(contextOptions);
 
-  if (BLOCK_MEDIA) {
-    await newContext.route(
-      '**/*.{png,jpg,jpeg,gif,svg,webp,avif,ico,bmp,woff,woff2,ttf,otf,mp3,mp4,avi,flac,ogg,wav,webm,m3u8,ts}',
-      async (route: Route, request: PlaywrightRequest) => {
-        await route.abort();
-      },
-    );
-  }
-
-  // Intercept all requests to avoid loading ads
+  // Intercept all requests: drop media/fonts (when BLOCK_MEDIA), enforce the
+  // SSRF policy and skip ad servers.
   await newContext.route(
     '**/*',
     async (route: Route, request: PlaywrightRequest) => {
+      // Decided by resource type rather than file extension, so images with
+      // query strings (photo.jpg?w=800), extension-less CDN URLs and web fonts
+      // are caught too. Checked first: an aborted request needs no SSRF lookup.
+      if (BLOCK_MEDIA && BLOCKED_RESOURCE_TYPES.has(request.resourceType())) {
+        return route.abort();
+      }
+
       const requestUrlString = request.url();
       try {
         await assertSafeTargetUrl(requestUrlString);

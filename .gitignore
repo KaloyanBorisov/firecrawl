@@ -66,3 +66,7 @@ apps/api/src/lib/scrape-interact/*.md
 vitest.out
 
 tmp/
+
+# Local backups of .env (contain secrets)
+.env.bak*
+*.env.bak*
