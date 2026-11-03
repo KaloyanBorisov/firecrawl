@@ -67,6 +67,8 @@ x-common-env: &common-env
 
 services:
   playwright-service:
+    # Come back after a crash, a Docker restart or a reboot.
+    restart: unless-stopped
     # NOTE: If you don't want to build the service locally,
     # comment out the build: statement and uncomment the image: statement
     # image: ghcr.io/firecrawl/playwright-service:latest
@@ -103,6 +105,9 @@ services:
       - /tmp/.cache:noexec,nosuid,size=1g
 
   api:
+    # Come back after a crash, a Docker restart or a reboot. For api this also
+    # covers starting before RabbitMQ accepts connections (restarts ignore depends_on).
+    restart: unless-stopped
     <<: *common-service
     environment:
       <<: *common-env
@@ -171,6 +176,8 @@ services:
         compress: "true"
 
   redis:
+    # Come back after a crash, a Docker restart or a reboot.
+    restart: unless-stopped
     # NOTE: If you want to use Valkey (open source) instead of Redis (source available),
     # uncomment the Valkey statement and comment out the Redis statement.
     # Using Valkey with Firecrawl is untested and not guaranteed to work. Use with caution.
@@ -188,6 +195,8 @@ services:
         compress: "true"
 
   rabbitmq:
+    # Come back after a crash, a Docker restart or a reboot.
+    restart: unless-stopped
     image: rabbitmq:3-management
     networks:
       - backend
@@ -206,6 +215,8 @@ services:
         compress: "true"
 
   nuq-postgres:
+    # Come back after a crash, a Docker restart or a reboot.
+    restart: unless-stopped
     # NOTE: If you don't want to build the image locally,
     # comment out the build: statement and uncomment the image: statement
     # image: ghcr.io/firecrawl/nuq-postgres:latest
@@ -238,6 +249,8 @@ services:
   # NUQ_BACKEND=fdb; the api container reads the shared cluster file from the
   # fdb-cluster-file volume. Replaces nuq-postgres once stable.
   foundationdb:
+    # Come back after a crash, a Docker restart or a reboot.
+    restart: unless-stopped
     image: foundationdb/foundationdb:7.3.63
     environment:
       FDB_NETWORKING_MODE: container
