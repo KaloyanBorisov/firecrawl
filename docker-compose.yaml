@@ -147,10 +147,12 @@ services:
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
       SEARXNG_SECRET: ${SEARXNG_SECRET:-firecrawl-searxng-change-me}
+      FORCE_OWNERSHIP: "false"
     volumes:
-      # Mount only the settings file, read-only. Mounting the whole folder let
-      # the container chown ./searxng to its own user, which blocked git.
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      # Folder mount, read-only. With FORCE_OWNERSHIP=false the entrypoint no
+      # longer chowns ./searxng to its own user (that blocked git), and a folder
+      # mount, unlike a single-file mount, survives git replacing settings.yml.
+      - ./searxng:/etc/searxng:ro
     networks:
       - backend
     restart: unless-stopped
