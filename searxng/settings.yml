@@ -22,8 +22,10 @@ search:
     - json
 
 outgoing:
-  request_timeout: 6.0
-  max_request_timeout: 12.0
+  # The response waits for the slowest engine; a hung engine used to hold every
+  # search for 6s. Blocked engines answer (or are suspended) much faster.
+  request_timeout: 4.0
+  max_request_timeout: 8.0
 
 # Make sure the engines listed in SEARXNG_ENGINES are enabled, so that one
 # provider blocking us (e.g. DuckDuckGo's anti-bot page) does not empty

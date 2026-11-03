@@ -109,16 +109,38 @@ export async function searxng_search(
       1,
       Math.ceil(requestedResults / resultsPerPage),
     );
-    let webResults: WebSearchResult[] = [];
-
-    for (let pageOffset = 0; pageOffset < pagesToFetch; pageOffset += 1) {
-      const pageResults = await fetchPage(startPage + pageOffset);
-      if (pageResults.length === 0) {
-        break;
+    const webResults: WebSearchResult[] = [];
+    const seen = new Set<string>();
+    // Pages can overlap (the same URL from different engines/pages).
+    const addPage = (pageResults: WebSearchResult[]) => {
+      for (const r of pageResults) {
+        if (!r.url || seen.has(r.url)) continue;
+        seen.add(r.url);
+        webResults.push(r);
       }
-      webResults = webResults.concat(pageResults);
-      if (webResults.length >= requestedResults) {
-        break;
+    };
+
+    // The first page decides whether more are needed (and surfaces errors).
+    const firstPage = await fetchPage(startPage);
+    addPage(firstPage);
+
+    if (
+      firstPage.length > 0 &&
+      webResults.length < requestedResults &&
+      pagesToFetch > 1
+    ) {
+      // Fetch the remaining pages in parallel instead of one after another.
+      // A failed later page only shortens the result list.
+      const rest = await Promise.allSettled(
+        Array.from({ length: pagesToFetch - 1 }, (_, i) =>
+          fetchPage(startPage + 1 + i),
+        ),
+      );
+      for (const page of rest) {
+        // Keep page order; stop at the first empty or failed page.
+        if (page.status !== "fulfilled" || page.value.length === 0) break;
+        addPage(page.value);
+        if (webResults.length >= requestedResults) break;
       }
     }
 
