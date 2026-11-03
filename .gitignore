@@ -70,3 +70,5 @@ tmp/
 # Local backups of .env (contain secrets)
 .env.bak*
 *.env.bak*
+# timestamped config backups (settings.yml.bak-20261102-174018 etc.)
+*.bak-[0-9]*

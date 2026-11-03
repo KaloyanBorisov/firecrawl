@@ -54,6 +54,15 @@ engines:
     disabled: false
   - name: wikipedia
     disabled: false
+  # Hosted Firecrawl search (api.firecrawl.dev), keyless unless
+  # FIRECRAWL_HOSTED_KEY is set. Module: searxng/engines/firecrawl_hosted.py,
+  # mounted by docker-compose.yaml. Opt in by adding "firecrawl" to
+  # SEARXNG_ENGINES in .env. Queries leave the machine.
+  - name: firecrawl
+    engine: firecrawl_hosted
+    shortcut: fc
+    timeout: 8.0
+    disabled: false
   # Tor-only engines: they cannot load without a Tor proxy and log an
   # error on every start. "inactive" skips loading them ("disabled" only
   # hides them from searches).
