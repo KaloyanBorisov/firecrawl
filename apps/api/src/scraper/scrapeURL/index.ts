@@ -131,6 +131,7 @@ import {
   SAFE_MODE_LOGIN_ACTIONS,
 } from "../../lib/safe-mode";
 import { resolveThreatProtection } from "../../lib/threat-protection/request";
+import { isUsOnly, usOnlyLocationRefusal } from "../../lib/us-only";
 import { loadFirstScreen } from "../../lib/branding/jev";
 import { UnsafeDomainBlockedError } from "../../lib/threat-protection/error";
 import { canonicalizeUrl } from "../../lib/threat-protection/providers/web-risk/canonicalize";
@@ -607,6 +608,7 @@ async function buildMetaObject(
 export type InternalOptions = {
   teamId: string;
   crawlId?: string;
+  origin?: string;
 
   priority?: number; // Passed along to fire-engine
   forceEngine?: Engine | Engine[];
@@ -799,9 +801,7 @@ async function scrapeURLLoopIter(
           length: engineResult.html?.trim().length ?? 0,
         },
       );
-      throw Object.assign(new AddFeatureError(["stealthProxy"]), {
-        statusCode: engineResult.statusCode,
-      });
+      throw new AddFeatureError(["stealthProxy"]);
     }
 
     // NOTE: TODO: what to do when status code is bad is tough...
@@ -1008,11 +1008,6 @@ async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
                 error: error.error,
               });
               if (testArm) {
-                if (
-                  experiment === "skip-enhanced-retry-after-site-protection"
-                ) {
-                  remainingEngines.shift();
-                }
                 enginePromises = enginePromises.filter(
                   x => x.engine !== error.engine,
                 );
@@ -1373,6 +1368,17 @@ export async function scrapeURL(
         options.skipTlsVerification = false;
       }
 
+      const usOnlyLocationError = usOnlyLocationRefusal(
+        internalOptions.teamFlags ?? undefined,
+        options.location?.country,
+      );
+      if (usOnlyLocationError) {
+        return {
+          success: false,
+          error: new UsOnlyUnavailableError(usOnlyLocationError),
+        };
+      }
+
       const meta = await buildMetaObject(
         id,
         url,
@@ -1473,7 +1479,9 @@ export async function scrapeURL(
                       url: urlToCheck,
                       zeroDataRetention:
                         internalOptions.zeroDataRetention || false,
+                      usOnly: isUsOnly(internalOptions.teamFlags ?? undefined),
                       location: options.location,
+                      skipTlsVerification: options.skipTlsVerification,
                     },
                     id,
                     meta.logger,

@@ -48,16 +48,8 @@ const RESEARCH_PAPER_OPERATIONS = [
   "similar",
 ] as const;
 
-// "github" is out of the default and the true/all shorthand, so keyless
-// behaviour is unchanged until someone names it. An explicit list replaces the
-// default, so closing it means RESEARCH_KEYLESS_DISABLED=search,inspect,read,similar,github
-const RESEARCH_KEYLESS_OPERATIONS = [
-  ...RESEARCH_PAPER_OPERATIONS,
-  "github",
-] as const;
-
 export type ResearchKeylessOperation =
-  (typeof RESEARCH_KEYLESS_OPERATIONS)[number];
+  (typeof RESEARCH_PAPER_OPERATIONS)[number];
 
 const researchKeylessDisabled = z.preprocess(
   value => {
@@ -74,7 +66,7 @@ const researchKeylessDisabled = z.preprocess(
       .filter(Boolean);
   },
   z
-    .array(z.enum(RESEARCH_KEYLESS_OPERATIONS))
+    .array(z.enum(RESEARCH_PAPER_OPERATIONS))
     .default([...RESEARCH_PAPER_OPERATIONS]),
 );
 
@@ -276,7 +268,7 @@ const configSchema = z.object({
   PREVIEW_TOKEN: z.string().optional(),
   SEARCH_PREVIEW_TOKEN: z.string().optional(),
   SEARCH_SERVICE_API_SECRET: z.string().optional(),
-  SEARCH_FEEDBACK_MAX_AGE_SEC: z.coerce.number().int().positive().default(120),
+  SEARCH_FEEDBACK_MAX_AGE_SEC: z.coerce.number().int().positive().default(300),
   SEARCH_FEEDBACK_DAILY_CAP_CREDITS: z.coerce
     .number()
     .int()
@@ -300,6 +292,13 @@ const configSchema = z.object({
     .int()
     .nonnegative()
     .default(10),
+
+  // Vercel Marketplace integration id (oac_...). When set, Vercel OIDC resource
+  // tokens (iss https://integrations.vercel.com/<id>) are accepted as bearer
+  // credentials. Unset disables the branch. Not a secret.
+  VERCEL_MARKETPLACE_INTEGRATION_ID: emptyStringAsUndefined(
+    z.string().regex(/^oac_[A-Za-z0-9]+$/),
+  ),
 
   // OAuth token introspection
   OAUTH_INTROSPECT_URL: z.string().optional(),
@@ -437,6 +436,17 @@ const configSchema = z.object({
   // team flag).
   ANTHROPIC_API_KEY: emptyStringAsUndefined(z.string().trim().min(1)),
   ALEXANDRIA_AUTO_TOOLS: z.stringbool().default(false),
+  // Rank rewrite-found tools together with raw-query tools by reciprocal rank
+  // fusion (also the alexandriaToolFusion team flag), waiting up to
+  // ALEXANDRIA_TOOL_FUSION_WAIT_MS past the raw lookup for them. On by default;
+  // set to false to append rewrite tools after the raw ranking instead.
+  ALEXANDRIA_TOOL_FUSION: z.stringbool().default(true),
+  ALEXANDRIA_TOOL_FUSION_WAIT_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(5000)
+    .default(1000),
 
   // Exchange (routed data sources service)
   FIRE_EXCHANGE_URL: z.url().optional(),
@@ -713,6 +723,18 @@ const configSchema = z.object({
     .min(0)
     .max(100)
     .default(0),
+  // Rollout percentage for schemas with $ref/$defs (the ones the default
+  // path sends to its larger model); unset = same as ROLLOUT_PERCENT.
+  EXTRACTION_PROVIDER_REF_SCHEMA_ROLLOUT_PERCENT: blankStringAsUnset(
+    z.coerce.number().int().min(0).max(100).optional(),
+  ),
+  // A provider answer whose arrays are all empty, for a page long enough to
+  // plausibly hold items, counts as a failure and falls back to the default
+  // model for that request.
+  EXTRACTION_PROVIDER_FALLBACK_ON_EMPTY_LISTS: z
+    .stringbool()
+    .optional()
+    .default(true),
   EXTRACTION_PROVIDER_TEAM_IDS: z.string().optional(),
   // Let any team pick the provider per request (json format `model`); off =
   // only teams in TEAM_IDS may.
@@ -852,17 +874,21 @@ const configSchema = z.object({
 });
 
 const validatedConfigSchema = configSchema.superRefine((value, context) => {
-  if (
-    value.EXTRACTION_PROVIDER_ROLLOUT_PERCENT +
-      value.EXTRACTION_PROVIDER_SHADOW_PERCENT >
-    100
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["EXTRACTION_PROVIDER_SHADOW_PERCENT"],
-      message:
-        "EXTRACTION_PROVIDER_ROLLOUT_PERCENT + EXTRACTION_PROVIDER_SHADOW_PERCENT must not exceed 100",
-    });
+  for (const key of [
+    "EXTRACTION_PROVIDER_ROLLOUT_PERCENT",
+    "EXTRACTION_PROVIDER_REF_SCHEMA_ROLLOUT_PERCENT",
+  ] as const) {
+    const rollout = value[key];
+    if (
+      rollout !== undefined &&
+      rollout + value.EXTRACTION_PROVIDER_SHADOW_PERCENT > 100
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["EXTRACTION_PROVIDER_SHADOW_PERCENT"],
+        message: `${key} + EXTRACTION_PROVIDER_SHADOW_PERCENT must not exceed 100`,
+      });
+    }
   }
   for (const error of getMcpActionLogConfigErrors(value)) {
     context.addIssue({

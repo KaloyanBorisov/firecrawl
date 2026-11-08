@@ -7,7 +7,7 @@ import {
   FireEngineScrapeRequestChromeCDP,
   FireEngineScrapeRequestCommon,
   FireEngineScrapeRequestTLSClient,
-  safeModeParams,
+  requestOverrides,
 } from "./scrape";
 import { stripCredentialHeaders } from "../../../../lib/safe-mode";
 import { EngineScrapeResult } from "..";
@@ -523,7 +523,7 @@ export async function scrapeURLWithFireEngineChromeCDP(
             name: meta.options.profile.name,
           }
         : undefined,
-      ...safeModeParams(meta.internalOptions.safeMode),
+      ...requestOverrides(meta),
     };
 
     // Safe Mode worker-side hardening: neutralize anything that request-time
@@ -721,6 +721,7 @@ export async function scrapeURLWithFireEngineTLSClient(
       scrapeId: meta.id,
       engine: "tlsclient",
       instantReturn: false,
+      skipTlsVerification: meta.options.skipTlsVerification,
 
       headers: meta.options.headers,
       priority: meta.internalOptions.priority,
@@ -737,7 +738,7 @@ export async function scrapeURLWithFireEngineTLSClient(
         !meta.internalOptions.zeroDataRetention &&
         meta.internalOptions.saveScrapeResultToGCS,
       zeroDataRetention: meta.internalOptions.zeroDataRetention,
-      ...safeModeParams(meta.internalOptions.safeMode),
+      ...requestOverrides(meta),
     };
 
     const sm = meta.internalOptions.safeMode;

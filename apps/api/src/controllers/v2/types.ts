@@ -11,6 +11,7 @@ import { hasReachableHost } from "../../lib/url-utils";
 import { countries } from "../../lib/validate-country";
 import { includesFormat } from "../../lib/format-utils";
 import { addPathRegexIssues, pathPatternsSchema } from "../../lib/crawl-regex";
+import { isDeveloperCategoryAlias } from "../../lib/developer-category";
 import { addStrictSchemaIssue } from "../../lib/openai-strict-schema";
 import {
   ExtractorOptions,
@@ -927,6 +928,8 @@ export const applyScrapeOptionsDefaults = <T extends ScrapeOptionsBase>(
   obj: T,
 ): T & { skipTlsVerification: boolean } => ({
   ...obj,
+  // Fork: keep the pre-#5539 default (skip TLS verification unless the request
+  // sets custom headers or actions). Upstream now verifies by default.
   skipTlsVerification:
     obj.skipTlsVerification ??
     ((obj.headers && Object.keys(obj.headers).length > 0) ||
@@ -1662,6 +1665,9 @@ export type ErrorResponse = {
   details?: any;
   sponsor_status?: string;
   login_url?: string;
+  replacement?: string;
+  documentation_url?: string;
+  retry_after_seconds?: number;
 };
 
 export type ScrapeResponse =
@@ -2139,6 +2145,7 @@ export const LOCKDOWN_DEFAULT_MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 export type TeamFlags = {
   exchangeRetrieve?: boolean;
   alexandriaAutoTools?: boolean;
+  alexandriaToolFusion?: boolean;
   ignoreRobots?: "disabled" | "allowed" | "forced";
   customRobotsAgent?: "disabled" | "allowed";
   threatProtection?: "disabled" | "allowed" | "forced";
@@ -2192,6 +2199,9 @@ export type TeamFlags = {
   // Every request is processed by US-based vendors only. A route with no US
   // vendor is refused or skipped with a warning.
   usOnly?: boolean;
+  // Per-team extensions past a deprecation's sunset (lib/deprecations.ts):
+  // surface or entry key to the YYYY-MM-DD or UTC timestamp it runs until.
+  deprecationExtensions?: Record<string, string>;
   organizationDataSourceAccess?: Record<
     string,
     {
@@ -2524,10 +2534,6 @@ const newsSearchSourceOptions = z.strictObject({
 });
 
 // Category source type definitions
-const githubCategoryOptions = z.strictObject({
-  type: z.literal("github"),
-});
-
 const researchCategoryOptions = z.strictObject({
   type: z.literal("research"),
 });
@@ -2543,20 +2549,6 @@ const developerCategoryOptions = z.strictObject({
 const govCategoryOptions = z.strictObject({
   type: z.literal("gov"),
 });
-
-const developerCategoryAliases = new Set([
-  "repo",
-  "code",
-  "developer",
-  "docs",
-  "devdex",
-  "repo_search",
-  "developer_index",
-]);
-
-function isDeveloperCategoryAlias(value: unknown): value is string {
-  return typeof value === "string" && developerCategoryAliases.has(value);
-}
 
 function normalizeDeveloperCategoryAliases(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
@@ -2608,7 +2600,7 @@ export const searchRequestSchema = z
     sources: z
       .union([
         // Array of strings (simple format)
-        z.array(z.enum(["web", "images", "news", "alexandria"])),
+        z.array(z.enum(["web", "images", "news", "alexandria", "skills"])),
         // Array of objects (advanced format)
         z.array(
           z.union([
@@ -2618,6 +2610,9 @@ export const searchRequestSchema = z
             z.strictObject({
               type: z.literal("alexandria"),
             }),
+            z.strictObject({
+              type: z.literal("skills"),
+            }),
           ]),
         ),
       ])
@@ -2626,10 +2621,9 @@ export const searchRequestSchema = z
       .preprocess(
         normalizeDeveloperCategoryAliases,
         z.union([
-          z.array(z.enum(["github", "research", "pdf", "developer", "gov"])),
+          z.array(z.enum(["research", "pdf", "developer", "gov"])),
           z.array(
             z.union([
-              githubCategoryOptions,
               researchCategoryOptions,
               pdfCategoryOptions,
               developerCategoryOptions,
@@ -2784,10 +2778,6 @@ export const searchRequestSchema = z
         // It's a string array, transform to object array
         categories = (categories as string[]).map(c => {
           switch (c) {
-            case "github":
-              return {
-                type: "github" as const,
-              };
             case "research":
               return {
                 type: "research" as const,
