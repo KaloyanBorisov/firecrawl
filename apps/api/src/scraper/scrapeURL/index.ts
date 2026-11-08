@@ -1362,8 +1362,8 @@ export async function scrapeURL(
         }
       }
 
-      // ZDR always verifies TLS, for every engine, even when the request asks
-      // to skip verification.
+      // ZDR always verifies TLS, for every engine. Explicit false also wins over
+      // the skip-by-default in applyScrapeOptionsDefaults.
       if (internalOptions.zeroDataRetention) {
         options.skipTlsVerification = false;
       }

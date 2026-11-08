@@ -928,7 +928,14 @@ export const applyScrapeOptionsDefaults = <T extends ScrapeOptionsBase>(
   obj: T,
 ): T & { skipTlsVerification: boolean } => ({
   ...obj,
-  skipTlsVerification: obj.skipTlsVerification ?? false,
+  // Fork: keep the pre-#5539 default (skip TLS verification unless the request
+  // sets custom headers or actions). Upstream now verifies by default.
+  skipTlsVerification:
+    obj.skipTlsVerification ??
+    ((obj.headers && Object.keys(obj.headers).length > 0) ||
+    (obj.actions && obj.actions.length > 0)
+      ? false
+      : true),
 });
 
 /**

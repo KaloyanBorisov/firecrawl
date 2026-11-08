@@ -8898,7 +8898,7 @@
           "skipTlsVerification": {
             "type": "boolean",
             "description": "Skip TLS certificate verification when making requests.",
-            "default": false
+            "default": true
           },
           "removeBase64Images": {
             "type": "boolean",
@@ -9009,7 +9009,7 @@
           "skipTlsVerification": {
             "type": "boolean",
             "description": "Skip TLS certificate verification when making requests.",
-            "default": false
+            "default": true
           },
           "timeout": {
             "type": "integer",
