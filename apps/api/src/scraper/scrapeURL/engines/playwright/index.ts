@@ -43,6 +43,13 @@ export async function scrapeURLWithPlaywright(
       headers: meta.options.headers,
       skip_tls_verification: meta.options.skipTlsVerification,
       ...(actions.length > 0 && { actions }),
+      // Self-host persistent login profile (storageState on the service).
+      ...(meta.options.profile && {
+        profile: {
+          name: meta.options.profile.name,
+          saveChanges: meta.options.profile.saveChanges,
+        },
+      }),
     },
     method: "POST",
     logger: meta.logger.child("scrapeURLWithPlaywright/robustFetch"),

@@ -19,6 +19,15 @@ import {
   UnsupportedActionError,
   validateActions,
 } from './helpers/actions';
+import {
+  isValidProfileName,
+  loadProfile,
+  ProfileOptions,
+  redactHeaders,
+  saveProfile,
+  shouldSaveProfile,
+  withProfileLock,
+} from './helpers/profiles';
 
 dotenv.config();
 
@@ -175,6 +184,7 @@ interface UrlModel {
   check_selector?: string;
   skip_tls_verification?: boolean;
   actions?: PageAction[];
+  profile?: ProfileOptions;
 }
 
 let browser: Browser;
@@ -197,6 +207,7 @@ const initializeBrowser = async () => {
 const createContext = async (
   skipTlsVerification: boolean = false,
   userAgentOverride?: string,
+  storageState?: object,
 ): Promise<{
   context: BrowserContext;
   securityState: ContextSecurityState;
@@ -212,6 +223,7 @@ const createContext = async (
     viewport,
     ignoreHTTPSErrors: skipTlsVerification,
     serviceWorkers: 'block',
+    ...(storageState && { storageState }),
   };
 
   contextOptions.proxy = {
@@ -262,6 +274,16 @@ const createContext = async (
 const shutdownBrowser = async () => {
   if (browser) {
     await browser.close();
+  }
+};
+
+// origin + path only: query strings on login redirects can carry tokens.
+const safeOriginPath = (u: string): string => {
+  try {
+    const parsed = new URL(u);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return 'unknown';
   }
 };
 
@@ -381,7 +403,17 @@ app.post('/scrape', async (req: Request, res: Response) => {
     check_selector,
     skip_tls_verification = false,
     actions: rawActions,
+    profile,
   }: UrlModel = req.body;
+
+  if (profile !== undefined && profile !== null) {
+    if (typeof profile !== 'object' || !isValidProfileName(profile.name)) {
+      return res.status(400).json({
+        error: 'Invalid profile name: must match ^[a-z0-9._-]{1,64}$',
+        code: 'INVALID_PROFILE',
+      });
+    }
+  }
 
   let actions: PageAction[];
   try {
@@ -401,9 +433,12 @@ app.post('/scrape', async (req: Request, res: Response) => {
   console.log(`Wait After Load: ${wait_after_load}`);
   console.log(`Wait Until: ${PAGE_WAIT_UNTIL}, Block Media: ${BLOCK_MEDIA}`);
   console.log(`Timeout: ${timeout}`);
-  console.log(`Headers: ${headers ? JSON.stringify(headers) : 'None'}`);
+  console.log(`Headers: ${headers ? JSON.stringify(redactHeaders(headers)) : 'None'}`);
   console.log(`Check Selector: ${check_selector ? check_selector : 'None'}`);
   console.log(`Skip TLS Verification: ${skip_tls_verification}`);
+  console.log(
+    `Profile: ${profile ? `${profile.name} (save: ${profile.saveChanges !== false})` : 'None'}`,
+  );
   console.log(`Actions: ${actions.length ? actions.map(a => a.type).join(', ') : 'None'}`);
   console.log(`==================================================`);
 
@@ -454,9 +489,30 @@ app.post('/scrape', async (req: Request, res: Response) => {
         )?.[1]
       : undefined;
 
+    let storageState: object | undefined;
+    if (profile) {
+      try {
+        storageState = await withProfileLock(profile.name, () =>
+          loadProfile(profile.name),
+        );
+      } catch (error) {
+        console.error(
+          `Failed to load profile "${profile.name}":`,
+          error instanceof Error ? error.message : 'unknown error',
+        );
+        return res
+          .status(500)
+          .json({ error: `Failed to load profile "${profile.name}".` });
+      }
+      console.log(
+        `Profile "${profile.name}": ${storageState ? 'loaded' : 'not found, starting empty'}`,
+      );
+    }
+
     const contextBundle = await createContext(
       skip_tls_verification,
       userAgentOverride,
+      storageState,
     );
     requestContext = contextBundle.context;
     securityState = contextBundle.securityState;
@@ -544,6 +600,29 @@ app.post('/scrape', async (req: Request, res: Response) => {
     );
     const pageError =
       result.status !== 200 ? getError(result.status) : undefined;
+
+    // Persist refreshed cookies/localStorage, but never overwrite a good
+    // session with the state of an error page or a login redirect.
+    if (profile) {
+      if (shouldSaveProfile(profile, result.status, result.url)) {
+        try {
+          const state = await requestContext.storageState();
+          await withProfileLock(profile.name, () =>
+            saveProfile(profile.name, state),
+          );
+          console.log(`Profile "${profile.name}": saved`);
+        } catch (error) {
+          console.error(
+            `Failed to save profile "${profile.name}":`,
+            error instanceof Error ? error.message : 'unknown error',
+          );
+        }
+      } else if (profile.saveChanges !== false) {
+        console.log(
+          `Profile "${profile.name}": not saved (status ${result.status}, landed on ${safeOriginPath(result.url)})`,
+        );
+      }
+    }
 
     if (!pageError) {
       console.log(`✅ Scrape successful!`);

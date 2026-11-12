@@ -22,6 +22,10 @@ RUN pnpm run build
 RUN chown -R node:node /usr/src/app \
   && chmod -R a+rX /usr/local/share/playwright
 
+# Persistent login profiles (storageState JSON). A fresh named volume mounted
+# here inherits this owner/mode, so the non-root service can write to it.
+RUN mkdir -p /data/profiles && chown node:node /data/profiles && chmod 700 /data/profiles
+
 ARG PORT
 ENV PORT=${PORT}
 

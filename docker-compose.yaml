@@ -85,6 +85,12 @@ services:
       PAGE_WAIT_UNTIL: ${PAGE_WAIT_UNTIL:-domcontentloaded}
       # Configure maximum concurrent pages for Playwright browser instances
       MAX_CONCURRENT_PAGES: ${CRAWL_CONCURRENT_REQUESTS:-10}
+      # Persistent login profiles (scrape option `profile: {name, saveChanges}`),
+      # one Playwright storageState JSON per site. Login tokens: this volume is
+      # mounted on playwright-service only.
+      PROFILES_DIR: /data/profiles
+    volumes:
+      - playwright_profiles:/data/profiles
     networks:
       - backend
     security_opt:
@@ -139,7 +145,8 @@ services:
         condition: service_started
         required: false
     ports:
-      - "${PORT:-3002}:${INTERNAL_PORT:-3002}"
+      # Loopback only: the self-hosted API has no auth (USE_DB_AUTHENTICATION=false).
+      - "127.0.0.1:${PORT:-3002}:${INTERNAL_PORT:-3002}"
     volumes:
       - fdb-cluster-file:/var/fdb:ro
     command: node dist/src/harness.js --start-docker
@@ -307,3 +314,4 @@ networks:
 volumes:
   fdb-data:
   fdb-cluster-file:
+  playwright_profiles:

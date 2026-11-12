@@ -996,10 +996,12 @@ export async function buildFallbackList(meta: Meta): Promise<
       continue;
 
     // A profile must never fall back to fetching anonymous content. File parsers
-    // may consume bytes already fetched by the authenticated browser.
+    // may consume bytes already fetched by the authenticated browser. The
+    // self-host playwright service keeps profiles as storageState files.
     if (
       meta.options.profile &&
       !engine.includes("chrome-cdp") &&
+      engine !== "playwright" &&
       !(engine === "pdf" && meta.pdfPrefetch) &&
       !(engine === "document" && meta.documentPrefetch) &&
       !(engine === "image" && meta.imagePrefetch)
