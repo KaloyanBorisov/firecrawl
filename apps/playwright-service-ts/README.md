@@ -75,3 +75,16 @@ docker run -i --rm -v firecrawl_playwright_profiles:/p busybox:1.36 \
   sh -c 'cat > /p/stocktwits.json && chown 1000:1000 /p/stocktwits.json && chmod 600 /p/stocktwits.json' < stocktwits.json
 rm stocktwits.json
 ```
+
+The volume belongs to the Docker engine that runs playwright-service. If you have more than one engine (e.g. Docker Desktop and a native engine under WSL), set `DOCKER_CONTEXT` / `--context` on the commands above so the profile lands on the right one.
+
+Sites that keep the login in localStorage rather than cookies need the second method (a full `storageState` capture). A cookie export won't be enough for them.
+
+Verify a seeded profile by scraping a page that only works when logged in, with `saveChanges: false` so a failed test doesn't overwrite it:
+
+```bash
+curl -s -X POST http://127.0.0.1:3002/v2/scrape -H 'Content-Type: application/json' \
+  -d '{"url":"https://stocktwits.com/settings","formats":["markdown"],"profile":{"name":"stocktwits","saveChanges":false}}'
+```
+
+The playwright-service log should show `Profile "stocktwits": loaded` (`not found, starting empty` means a wrong name or engine). The response's `metadata.url` should not be a login page.
