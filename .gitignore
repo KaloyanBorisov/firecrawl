@@ -72,3 +72,8 @@ tmp/
 *.env.bak*
 # timestamped config backups (settings.yml.bak-20261102-174018 etc.)
 *.bak-[0-9]*
+
+# Persistent login profiles / cookie exports (login tokens) - never commit
+profiles/
+playwright_profiles/
+*.storage-state.json
